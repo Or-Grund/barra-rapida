@@ -1,0 +1,124 @@
+================================================================================
+                    BARRA RAPIDA - APP DE VENTAS PARA EVENTO
+                    Resumen del Proyecto - 18/07/2026
+================================================================================
+
+OBJETIVO
+--------
+Aplicacion web para vender bebidas en un evento de folklore sin hacer filas.
+El amigo del usuario es musico y organiza un evento para juntar dinero 
+para su disco. La idea es agilizar las ventas de bebidas en la barra.
+
+FLUVO COMPLETO
+--------------
+1. CLIENTE entra a la app desde su celular (por QR o link)
+2. CLIENTE agrega bebidas al CARRITO con cantidades (+ / -)
+3. CLIENTE toca COMPRAR
+4. En MODO PRUEBA: pago simulado automatico
+   En MODO REAL: redirige a Mercado Pago para pagar
+5. CLIENTE recibe un QR unico con TODAS las bebidas del pedido
+6. CLIENTE muestra el QR en la barra
+7. BARMAN escanea el QR y entrega TODO el pedido de una vez
+
+ROLES
+-----
+| Rol          | URL                          | Funciones                          |
+|--------------|------------------------------|------------------------------------|
+| CLIENTE      | http://localhost:8000        | Ver menu, carrito, pagar, ver QR   |
+| BARMAN       | http://localhost:8000/admin  | Escanear QR, ver cola de pedidos   |
+| ORGANIZADOR  | http://localhost:8000/organizador | Control stock, recaudacion, pedidos |
+
+TECNOLOGIAS USADAS
+------------------
+- Backend: Python 3.14 + FastAPI
+- Base de datos: SQLite (archivo local)
+- QR: Libreria qrcode
+- Pagos: Mercado Pago (Checkout API)
+- Frontend: HTML + CSS + JavaScript puro
+- Entorno: PyCharm Community
+
+ARCHIVOS DEL PROYECTO
+---------------------
+barra_rapida/
+|-- main.py                  -> Servidor completo (backend + frontend)
+|-- database.py              -> Base de datos SQLite
+|-- mercadopago_config.py    -> Credenciales de MP (TEST por ahora)
+|-- barra_rapida.db          -> Base de datos (se crea sola)
+|-- static/                  -> Carpeta para archivos estaticos
+
+FUNCIONALIDADES IMPLEMENTADAS
+-----------------------------
+
+[CLIENTE]
+- Menu de bebidas con precios y stock disponible
+- Carrito de compras con botones + / -
+- No permite agregar mas del stock disponible
+- Bebidas agotadas aparecen bloqueadas
+- Un solo pago por todas las bebidas
+- QR unico con todo el pedido
+
+[BARMAN]
+- Input para escanear/ingresar codigo QR
+- Valida que el pedido este pagado
+- Valida que no haya sido entregado antes
+- Muestra lista de bebidas a entregar
+- Cola de pedidos pendientes (para preparar con anticipacion)
+- NO ve el codigo QR (solo el numero de pedido)
+- SI ve que bebidas y cantidades lleva cada pedido
+
+[ORGANIZADOR]
+- Estadisticas: pedidos, entregados, recaudado
+- Control de stock en tiempo real
+- Boton para recargar stock de cada bebida
+- Lista completa de pedidos con estado
+
+BASE DE DATOS (SQLite)
+----------------------
+Tabla: bebidas
+  - id, nombre, precio, stock, activa
+
+Tabla: pedidos
+  - id, estado, mp_preference_id, mp_payment_id, codigo_qr, total
+  - creado_en, entregado_en
+
+Tabla: items_pedido
+  - id, pedido_id, bebida_id, cantidad, precio_unitario, subtotal
+
+MERCADO PAGO
+------------
+- Actualmente en MODO PRUEBA (MODO_PRUEBA = True)
+- Credenciales de TEST obtenidas de developers.mercadopago.com.ar
+- Para activar modo real:
+  1. Cambiar MODO_PRUEBA = False
+  2. Reemplazar credenciales por las de PRODUCCION
+  3. Verificar cuenta de MP (CUIT, datos bancarios)
+
+BEBIDAS DE EJEMPLO (con stock inicial)
+--------------------------------------
+- Cerveza Artesanal  $800  (stock: 50)
+- Vino Malbec        $1200 (stock: 30)
+- Fernet con Coca    $1000 (stock: 40)
+- Coca Cola          $500  (stock: 60)
+- Agua Mineral       $400  (stock: 100)
+- Whisky             $1500 (stock: 20)
+- Gin Tonic          $1300 (stock: 25)
+
+COMO EJECUTAR
+-------------
+1. Abrir PyCharm
+2. Abrir terminal (Alt+F12)
+3. python main.py
+4. Abrir navegador en las URLs correspondientes
+
+PROXIMOS PASOS PENDIENTES
+--------------------------
+[ ] Activar Mercado Pago real (modo produccion)
+[ ] Disenio personalizado del evento (folklore, nombre del artista)
+[ ] Acceso desde red local (otros celulares por WiFi)
+[ ] Sonido de alerta cuando llega pedido nuevo
+[ ] Exportar ventas a Excel
+[ ] Multiple barmans (varios puntos de entrega)
+
+================================================================================
+                            FIN DEL RESUMEN
+================================================================================
