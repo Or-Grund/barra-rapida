@@ -1,1240 +1,792 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
-from database import get_db, init_db
-from mercadopago_config import MP_ACCESS_TOKEN, MODO_PRUEBA
+
+from fastapi import FastAPI, Request, Form, HTTPException, Depends, Query
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
+import sqlite3
+import json
 import qrcode
 import io
 import base64
-import uuid
 import mercadopago
 from datetime import datetime
+import hashlib
+import secrets
+import os
 
-app = FastAPI(title="Barra Rapida")
+app = FastAPI(title="Barra Rápida + Entradas")
 
+# CORS para que los guardias puedan escanear desde sus celulares
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Templates
+templates = Jinja2Templates(directory="templates")
+
+# Crear carpeta templates si no existe
+os.makedirs("templates", exist_ok=True)
+os.makedirs("static", exist_ok=True)
+
+# ========================
+# CONFIGURACIÓN
+# ========================
+MODO_PRUEBA = True  # Cambiar a False para producción
+
+# Mercado Pago (TEST)
+MP_ACCESS_TOKEN = "TEST-0000000000000000-000000-0000000000000000-0000000000000000"
+mp_sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
+
+# Claves de guardias (cambiar por las reales antes del evento)
+GUARDIAS = {
+    "Guardia_1": {"password": "Folklore2026!", "nombre": "Guardia 1"},
+    "Guardia_2": {"password": "Folklore2026!", "nombre": "Guardia 2"},
+    "Guardia_3": {"password": "Folklore2026!", "nombre": "Guardia 3"},
+    "Guardia_4": {"password": "Folklore2026!", "nombre": "Guardia 4"},
+    "Guardia_5": {"password": "Folklore2026!", "nombre": "Guardia 5"},
+    "Guardia_6": {"password": "Folklore2026!", "nombre": "Guardia 6"},
+}
+
+# ========================
+# BASE DE DATOS
+# ========================
+DB_PATH = "barra_rapida.db"
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def rows_to_dicts(rows):
+    """Convierte sqlite3.Row objects a listas de diccionarios"""
+    return [dict(row) for row in rows]
+
+def row_to_dict(row):
+    """Convierte un sqlite3.Row object a diccionario"""
+    if row is None:
+        return None
+    return dict(row)
+
+def init_db():
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Tablas de bebidas (ya existentes)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bebidas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            precio REAL NOT NULL,
+            stock INTEGER DEFAULT 0,
+            activa INTEGER DEFAULT 1
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pedidos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            estado TEXT DEFAULT 'pendiente',
+            mp_preference_id TEXT,
+            mp_payment_id TEXT,
+            codigo_qr TEXT,
+            total REAL,
+            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            entregado_en TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS items_pedido (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pedido_id INTEGER,
+            bebida_id INTEGER,
+            cantidad INTEGER,
+            precio_unitario REAL,
+            subtotal REAL,
+            FOREIGN KEY (pedido_id) REFERENCES pedidos(id),
+            FOREIGN KEY (bebida_id) REFERENCES bebidas(id)
+        )
+    """)
+
+    # ========================
+    # TABLAS DE ENTRADAS
+    # ========================
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tipos_entrada (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            precio REAL NOT NULL,
+            descripcion TEXT,
+            stock INTEGER DEFAULT 0,
+            activa INTEGER DEFAULT 1
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS compras_entradas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre_comprador TEXT NOT NULL,
+            email TEXT,
+            telefono TEXT,
+            dni TEXT,
+            cantidad INTEGER NOT NULL,
+            total REAL NOT NULL,
+            estado TEXT DEFAULT 'pendiente',
+            mp_preference_id TEXT,
+            mp_payment_id TEXT,
+            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            pagado_en TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS entradas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            compra_id INTEGER,
+            tipo_entrada_id INTEGER,
+            numero_entrada TEXT NOT NULL,
+            codigo_qr TEXT UNIQUE NOT NULL,
+            estado TEXT DEFAULT 'pendiente',
+            usada_en TIMESTAMP,
+            usada_por_guardia TEXT,
+            FOREIGN KEY (compra_id) REFERENCES compras_entradas(id),
+            FOREIGN KEY (tipo_entrada_id) REFERENCES tipos_entrada(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS guardias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            nombre TEXT NOT NULL,
+            activo INTEGER DEFAULT 1
+        )
+    """)
+
+    # Insertar tipos de entrada de ejemplo si no existen
+    cursor.execute("SELECT COUNT(*) FROM tipos_entrada")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("""
+            INSERT INTO tipos_entrada (nombre, precio, descripcion, stock) VALUES
+            ('General', 5000.00, 'Acceso general al evento', 500),
+            ('VIP', 8000.00, 'Acceso VIP + zona preferencial', 100),
+            ('Camping', 6500.00, 'Acceso + espacio de camping', 200)
+        """)
+
+    # Insertar guardias si no existen
+    cursor.execute("SELECT COUNT(*) FROM guardias")
+    if cursor.fetchone()[0] == 0:
+        for username, data in GUARDIAS.items():
+            cursor.execute("""
+                INSERT INTO guardias (username, password, nombre) VALUES (?, ?, ?)
+            """, (username, data["password"], data["nombre"]))
+
+    conn.commit()
+    conn.close()
+
+# Inicializar DB al arrancar
 init_db()
 
-sdk = None
-if not MODO_PRUEBA:
-    sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-
-
-# ============ PAGINA CLIENTE (MENU + CARRITO) ============
-@app.get("/", response_class=HTMLResponse)
-def home():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Barra Rapida</title>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-                font-family: 'Segoe UI', Arial, sans-serif; 
-                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                min-height: 100vh;
-                color: white;
-            }
-            .header {
-                background: rgba(0,0,0,0.3);
-                padding: 15px;
-                text-align: center;
-                position: sticky;
-                top: 0;
-                z-index: 100;
-            }
-            .header h1 { font-size: 1.5em; }
-            .evento { color: #e94560; font-size: 0.9em; }
-            .container { 
-                max-width: 600px; 
-                margin: 0 auto; 
-                padding: 20px;
-                padding-bottom: 250px;
-            }
-            .bebida {
-                background: rgba(255,255,255,0.1);
-                border-radius: 15px;
-                padding: 15px;
-                margin: 10px 0;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                border: 1px solid rgba(255,255,255,0.2);
-            }
-            .bebida.agotada {
-                opacity: 0.5;
-                border-color: #666;
-            }
-            .bebida-info h3 { font-size: 1.1em; margin-bottom: 3px; }
-            .precio { color: #e94560; font-size: 1.2em; font-weight: bold; }
-            .stock {
-                font-size: 0.8em;
-                color: #888;
-                margin-top: 3px;
-            }
-            .stock.bajo { color: #f39c12; }
-            .stock.agotado { color: #e94560; font-weight: bold; }
-            .cantidad-control {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-            }
-            .btn-cantidad {
-                background: #e94560;
-                color: white;
-                border: none;
-                width: 35px;
-                height: 35px;
-                border-radius: 50%;
-                font-size: 1.2em;
-                cursor: pointer;
-            }
-            .btn-cantidad:disabled {
-                background: #666;
-                cursor: not-allowed;
-            }
-            .cantidad-valor {
-                font-size: 1.2em;
-                min-width: 30px;
-                text-align: center;
-            }
-            .tag-agotado {
-                background: #e94560;
-                color: white;
-                padding: 5px 15px;
-                border-radius: 15px;
-                font-size: 0.85em;
-                font-weight: bold;
-            }
-            .carrito-fijo {
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                right: 0;
-                background: linear-gradient(180deg, #16213e 0%, #1a1a2e 100%);
-                border-top: 2px solid #e94560;
-                padding: 15px;
-                max-height: 50vh;
-                overflow-y: auto;
-                z-index: 200;
-            }
-            .carrito-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 10px;
-            }
-            .carrito-items {
-                max-height: 150px;
-                overflow-y: auto;
-                margin-bottom: 10px;
-            }
-            .carrito-item {
-                display: flex;
-                justify-content: space-between;
-                padding: 5px 0;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-                font-size: 0.9em;
-            }
-            .carrito-total {
-                font-size: 1.3em;
-                color: #e94560;
-                font-weight: bold;
-                text-align: right;
-                margin: 10px 0;
-            }
-            .btn-comprar {
-                width: 100%;
-                padding: 15px;
-                background: #27ae60;
-                color: white;
-                border: none;
-                border-radius: 10px;
-                font-size: 1.2em;
-                cursor: pointer;
-                font-weight: bold;
-            }
-            .btn-comprar:disabled {
-                background: #666;
-                cursor: not-allowed;
-            }
-            .btn-vaciar {
-                background: transparent;
-                color: #888;
-                border: 1px solid #888;
-                padding: 5px 10px;
-                border-radius: 5px;
-                cursor: pointer;
-                font-size: 0.8em;
-            }
-            .vacio-msg {
-                text-align: center;
-                color: #888;
-                padding: 10px;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>BARRA RAPIDA</h1>
-            <div class="evento">Evento de Folklore - Recaudando para el disco</div>
-        </div>
-        <div class="container" id="menu"></div>
-        <div class="carrito-fijo">
-            <div class="carrito-header">
-                <h3>Tu Pedido</h3>
-                <button class="btn-vaciar" onclick="vaciarCarrito()">Vaciar</button>
-            </div>
-            <div class="carrito-items" id="carrito-items">
-                <div class="vacio-msg">Agrega bebidas al carrito</div>
-            </div>
-            <div class="carrito-total" id="carrito-total">Total: $0</div>
-            <button class="btn-comprar" id="btn-comprar" onclick="comprar()" disabled>
-                COMPRAR
-            </button>
-        </div>
-        <script>
-            let carrito = {};
-            let bebidasData = [];
-
-            async function cargarMenu() {
-                const res = await fetch('/api/bebidas');
-                bebidasData = await res.json();
-                const menu = document.getElementById('menu');
-
-                bebidasData.forEach(b => {
-                    const agotada = b.stock <= 0;
-                    const stockBajo = b.stock > 0 && b.stock <= 5;
-                    const stockClass = agotada ? 'agotado' : (stockBajo ? 'bajo' : '');
-                    const stockText = agotada ? 'AGOTADO' : (stockBajo ? `Quedan ${b.stock}` : `Stock: ${b.stock}`);
-
-                    menu.innerHTML += `
-                        <div class="bebida ${agotada ? 'agotada' : ''}">
-                            <div class="bebida-info">
-                                <h3>${b.nombre}</h3>
-                                <div class="precio">$${b.precio.toFixed(2)}</div>
-                                <div class="stock ${stockClass}">${stockText}</div>
-                            </div>
-                            ${agotada ? 
-                                '<span class="tag-agotado">AGOTADO</span>' :
-                                `<div class="cantidad-control">
-                                    <button class="btn-cantidad" onclick="cambiarCantidad(${b.id}, -1)" ${!carrito[b.id] ? 'disabled' : ''}>-</button>
-                                    <span class="cantidad-valor" id="cant-${b.id}">0</span>
-                                    <button class="btn-cantidad" onclick="cambiarCantidad(${b.id}, 1)" id="btn-mas-${b.id}">+</button>
-                                </div>`
-                            }
-                        </div>
-                    `;
-                });
-            }
-
-            function cambiarCantidad(bebidaId, delta) {
-                const bebida = bebidasData.find(b => b.id == bebidaId);
-                if (!carrito[bebidaId]) carrito[bebidaId] = 0;
-
-                const nuevaCantidad = carrito[bebidaId] + delta;
-
-                if (delta > 0 && nuevaCantidad > bebida.stock) {
-                    alert(`Solo quedan ${bebida.stock} unidades de ${bebida.nombre}`);
-                    return;
-                }
-
-                carrito[bebidaId] = nuevaCantidad;
-                if (carrito[bebidaId] <= 0) delete carrito[bebidaId];
-
-                document.getElementById(`cant-${bebidaId}`).textContent = carrito[bebidaId] || 0;
-
-                const btnMenos = document.querySelector(`button[onclick="cambiarCantidad(${bebidaId}, -1)"]`);
-                if (btnMenos) btnMenos.disabled = !carrito[bebidaId];
-
-                const btnMas = document.getElementById(`btn-mas-${bebidaId}`);
-                if (btnMas) btnMas.disabled = carrito[bebidaId] >= bebida.stock;
-
-                actualizarCarrito();
-            }
-
-            function actualizarCarrito() {
-                const itemsDiv = document.getElementById('carrito-items');
-                const totalDiv = document.getElementById('carrito-total');
-                const btnComprar = document.getElementById('btn-comprar');
-                const items = Object.entries(carrito);
-
-                if (items.length === 0) {
-                    itemsDiv.innerHTML = '<div class="vacio-msg">Agrega bebidas al carrito</div>';
-                    totalDiv.textContent = 'Total: $0';
-                    btnComprar.disabled = true;
-                    return;
-                }
-
-                let total = 0;
-                itemsDiv.innerHTML = items.map(([bebidaId, cantidad]) => {
-                    const bebida = bebidasData.find(b => b.id == bebidaId);
-                    const subtotal = bebida.precio * cantidad;
-                    total += subtotal;
-                    return `<div class="carrito-item"><span>${cantidad}x ${bebida.nombre}</span><span>$${subtotal.toFixed(2)}</span></div>`;
-                }).join('');
-
-                totalDiv.textContent = `Total: $${total.toFixed(2)}`;
-                btnComprar.disabled = false;
-            }
-
-            function vaciarCarrito() {
-                carrito = {};
-                bebidasData.forEach(b => {
-                    const el = document.getElementById(`cant-${b.id}`);
-                    if (el) el.textContent = '0';
-                    const btnMenos = document.querySelector(`button[onclick="cambiarCantidad(${b.id}, -1)"]`);
-                    if (btnMenos) btnMenos.disabled = true;
-                    const btnMas = document.getElementById(`btn-mas-${b.id}`);
-                    if (btnMas) btnMas.disabled = false;
-                });
-                actualizarCarrito();
-            }
-
-            async function comprar() {
-                const btn = document.getElementById('btn-comprar');
-                btn.disabled = true;
-                btn.textContent = 'Procesando...';
-
-                const items = Object.entries(carrito).map(([bebida_id, cantidad]) => ({
-                    bebida_id: parseInt(bebida_id),
-                    cantidad: cantidad
-                }));
-
-                const res = await fetch('/api/pedido', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({items: items})
-                });
-
-                const data = await res.json();
-
-                if (data.qr_url) {
-                    window.location.href = data.qr_url;
-                } else {
-                    alert('Error: ' + (data.error || 'Desconocido'));
-                    btn.disabled = false;
-                    btn.textContent = 'COMPRAR';
-                }
-            }
-
-            cargarMenu();
-        </script>
-    </body>
-    </html>
-    """
-
-
-@app.get("/api/bebidas")
-def get_bebidas():
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM bebidas WHERE activa = 1 ORDER BY precio")
-    bebidas = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-    return bebidas
-
-
-@app.post("/api/pedido")
-def crear_pedido(data: dict):
-    items = data.get("items", [])
-    if not items:
-        raise HTTPException(status_code=400, detail="Carrito vacio")
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    for item in items:
-        bebida_id = item.get("bebida_id")
-        cantidad = item.get("cantidad", 1)
-
-        cursor.execute("SELECT stock, nombre FROM bebidas WHERE id = ? AND activa = 1", (bebida_id,))
-        bebida = cursor.fetchone()
-
-        if not bebida:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Bebida no encontrada")
-
-        if bebida["stock"] < cantidad:
-            conn.close()
-            raise HTTPException(status_code=400,
-                                detail=f"No hay suficiente stock de {bebida['nombre']}. Quedan: {bebida['stock']}")
-
-    total = 0
-    items_validados = []
-
-    for item in items:
-        bebida_id = item.get("bebida_id")
-        cantidad = item.get("cantidad", 1)
-
-        cursor.execute("SELECT * FROM bebidas WHERE id = ?", (bebida_id,))
-        bebida = cursor.fetchone()
-        bebida = dict(bebida)
-
-        subtotal = bebida["precio"] * cantidad
-        total += subtotal
-
-        items_validados.append({
-            "bebida_id": bebida_id,
-            "cantidad": cantidad,
-            "precio_unitario": bebida["precio"],
-            "subtotal": subtotal,
-            "nombre": bebida["nombre"]
-        })
-
-    codigo_qr = str(uuid.uuid4())[:8].upper()
-
-    cursor.execute("""
-                   INSERT INTO pedidos (estado, codigo_qr, total)
-                   VALUES ('pendiente', ?, ?)
-                   """, (codigo_qr, total))
-
-    pedido_id = cursor.lastrowid
-
-    for item in items_validados:
-        cursor.execute("""
-                       INSERT INTO items_pedido (pedido_id, bebida_id, cantidad, precio_unitario, subtotal)
-                       VALUES (?, ?, ?, ?, ?)
-                       """, (pedido_id, item["bebida_id"], item["cantidad"], item["precio_unitario"], item["subtotal"]))
-
-        cursor.execute("""
-                       UPDATE bebidas
-                       SET stock = stock - ?
-                       WHERE id = ?
-                       """, (item["cantidad"], item["bebida_id"]))
-
-    conn.commit()
-    conn.close()
-
-    if MODO_PRUEBA:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE pedidos SET estado = 'pagado' WHERE id = ?", (pedido_id,))
-        conn.commit()
-        conn.close()
-        return {"qr_url": f"/qr/{codigo_qr}"}
-
-    items_mp = [{
-        "title": f"{item['cantidad']}x {item['nombre']}",
-        "quantity": 1,
-        "unit_price": float(item["subtotal"]),
-    } for item in items_validados]
-
-    preference_data = {
-        "items": items_mp,
-        "back_urls": {
-            "success": f"http://localhost:8000/pago-exitoso/{pedido_id}",
-            "failure": "http://localhost:8000/pago-fallido",
-            "pending": "http://localhost:8000/pago-pendiente"
-        },
-        "auto_return": "approved",
-        "external_reference": str(pedido_id)
-    }
-
-    preference = sdk.preference().create(preference_data)
-
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE pedidos SET mp_preference_id = ? WHERE id = ?",
-                   (preference["response"]["id"], pedido_id))
-    conn.commit()
-    conn.close()
-
-    return {"pago_url": preference["response"]["init_point"]}
-
-
-@app.get("/qr/{codigo}", response_class=HTMLResponse)
-def mostrar_qr(codigo: str):
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM pedidos WHERE codigo_qr = ?", (codigo,))
-    pedido = cursor.fetchone()
-
-    if not pedido:
-        conn.close()
-        return "<h1 style='text-align:center;color:red;'>Codigo no valido</h1>"
-
-    pedido = dict(pedido)
-
-    cursor.execute("""
-                   SELECT ip.*, b.nombre as bebida_nombre
-                   FROM items_pedido ip
-                            JOIN bebidas b ON ip.bebida_id = b.id
-                   WHERE ip.pedido_id = ?
-                   """, (pedido["id"],))
-    items = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-
-    qr = qrcode.QRCode(version=3, box_size=10, border=2)
-    qr.add_data(codigo)
+# ========================
+# FUNCIONES AUXILIARES
+# ========================
+def generar_qr_base64(texto):
+    """Genera un QR en base64 para mostrar en HTML"""
+    qr = qrcode.QRCode(version=1, box_size=10, border=2)
+    qr.add_data(texto)
     qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
 
-    img = qr.make_image(fill_color="#1a1a2e", back_color="white")
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
-    qr_base64 = base64.b64encode(buffer.getvalue()).decode()
+    buffer.seek(0)
+    return base64.b64encode(buffer.read()).decode()
 
-    items_list = ""
-    for i in items:
-        items_list += f"""
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.1);">
-            <span>{i['cantidad']}x {i['bebida_nombre']}</span>
-            <span style="color:#e94560;">${i['subtotal']:.2f}</span>
-        </div>
-        """
+def generar_codigo_entrada(compra_id, numero):
+    """Genera un código único para cada entrada"""
+    secreto = "FOLKLORE2026_SECRET"
+    hash_input = f"{secreto}-{compra_id}-{numero}-{datetime.now().timestamp()}"
+    return hashlib.sha256(hash_input.encode()).hexdigest()[:16].upper()
 
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Tu Pedido</title>
-        <style>
-            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-            body {{ 
-                font-family: 'Segoe UI', Arial, sans-serif; 
-                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                min-height: 100vh;
-                color: white;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                padding: 20px;
-            }}
-            .container {{
-                background: rgba(255,255,255,0.1);
-                border-radius: 20px;
-                padding: 25px;
-                max-width: 400px;
-                width: 100%;
-                text-align: center;
-            }}
-            .estado {{
-                background: #27ae60;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 25px;
-                font-size: 1em;
-                font-weight: bold;
-                margin-bottom: 15px;
-                display: inline-block;
-            }}
-            .items-list {{
-                background: rgba(0,0,0,0.2);
-                border-radius: 10px;
-                padding: 15px;
-                margin: 15px 0;
-                text-align: left;
-            }}
-            .total {{
-                font-size: 1.5em;
-                color: #e94560;
-                font-weight: bold;
-                margin: 15px 0;
-            }}
-            .qr-container {{
-                background: white;
-                padding: 15px;
-                border-radius: 15px;
-                margin: 15px 0;
-                display: inline-block;
-            }}
-            .qr-container img {{ width: 220px; height: 220px; }}
-            .codigo {{
-                font-family: monospace;
-                font-size: 1.8em;
-                letter-spacing: 8px;
-                color: #e94560;
-                margin: 10px 0;
-            }}
-            .screenshot {{
-                background: #f39c12;
-                color: #1a1a2e;
-                padding: 10px 20px;
-                border-radius: 20px;
-                font-size: 0.9em;
-                margin: 10px 0;
-                display: inline-block;
-                font-weight: bold;
-            }}
-            .instruccion {{
-                color: #888;
-                margin-top: 10px;
-                font-size: 0.95em;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="estado">PAGO CONFIRMADO</div>
-            <h2 style="margin-bottom:10px;">Tu Pedido</h2>
-            <div class="items-list">
-                {items_list}
-            </div>
-            <div class="total">Total: $ {pedido['total']:.2f}</div>
-            <div class="qr-container">
-                <img src="data:image/png;base64,{qr_base64}" alt="QR">
-            </div>
-            <div class="codigo">{codigo}</div>
-            <div class="screenshot">Hace screenshot o guarda esta pantalla</div>
-            <div class="instruccion">
-                Mostra este QR en la barra para retirar TODO tu pedido
-            </div>
-        </div>
-    </body>
-    </html>
-    """
+# ========================
+# PÁGINA PÚBLICA - COMPRA DE ENTRADAS
+# ========================
+@app.get("/entradas", response_class=HTMLResponse)
+async def pagina_entradas(request: Request):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM tipos_entrada WHERE activa = 1 ORDER BY precio"
+    ).fetchall()
+    tipos = rows_to_dicts(rows)
+    conn.close()
+    return templates.TemplateResponse("entradas_publico.html", {
+        "request": request,
+        "tipos": tipos,
+        "modo_prueba": MODO_PRUEBA
+    })
 
-
-# ============ PANEL BARMAN (ENTREGA + COLA DE PEDIDOS) ============
-@app.get("/admin", response_class=HTMLResponse)
-def panel_admin():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Panel del Barman</title>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-                font-family: 'Segoe UI', Arial, sans-serif; 
-                background: #1a1a2e;
-                min-height: 100vh;
-                color: white;
-                padding: 20px;
-            }
-            .container { max-width: 700px; margin: 0 auto; }
-            h1 { text-align: center; margin-bottom: 20px; }
-
-            /* SECCION ESCANEAR QR */
-            .input-section {
-                background: rgba(255,255,255,0.1);
-                padding: 20px;
-                border-radius: 15px;
-                margin-bottom: 20px;
-            }
-            input {
-                width: 100%;
-                padding: 15px;
-                font-size: 1.5em;
-                text-align: center;
-                letter-spacing: 5px;
-                border: 2px solid #e94560;
-                border-radius: 10px;
-                background: rgba(255,255,255,0.05);
-                color: white;
-                text-transform: uppercase;
-            }
-            .btn-validar {
-                width: 100%;
-                padding: 15px;
-                margin-top: 15px;
-                background: #e94560;
-                color: white;
-                border: none;
-                border-radius: 10px;
-                font-size: 1.2em;
-                cursor: pointer;
-            }
-            .resultado {
-                padding: 20px;
-                border-radius: 15px;
-                margin-top: 20px;
-            }
-            .resultado.ok { background: rgba(39, 174, 96, 0.2); border: 2px solid #27ae60; }
-            .resultado.error { background: rgba(233, 69, 96, 0.2); border: 2px solid #e94560; }
-            .resultado .items-entrega {
-                background: rgba(0,0,0,0.2);
-                border-radius: 10px;
-                padding: 15px;
-                margin: 15px 0;
-                text-align: left;
-            }
-            .resultado .items-entrega div {
-                padding: 5px 0;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-            }
-
-            /* SECCION COLA DE PEDIDOS */
-            .cola-section {
-                background: rgba(255,255,255,0.05);
-                border-radius: 15px;
-                padding: 20px;
-            }
-            .cola-section h2 {
-                color: #f39c12;
-                margin-bottom: 15px;
-                text-align: center;
-            }
-            .pedido-cola {
-                background: rgba(255,255,255,0.08);
-                border-radius: 10px;
-                padding: 15px;
-                margin-bottom: 10px;
-                border-left: 4px solid #f39c12;
-            }
-            .pedido-cola.entregado {
-                opacity: 0.4;
-                border-left-color: #27ae60;
-            }
-            .pedido-numero {
-                color: #888;
-                font-size: 0.85em;
-                margin-bottom: 5px;
-            }
-            .pedido-items {
-                font-size: 1em;
-            }
-            .pedido-items div {
-                padding: 3px 0;
-            }
-            .pedido-total {
-                color: #e94560;
-                font-weight: bold;
-                margin-top: 8px;
-                font-size: 1.1em;
-            }
-            .pedido-hora {
-                color: #666;
-                font-size: 0.8em;
-                margin-top: 5px;
-            }
-            .sin-pedidos {
-                text-align: center;
-                color: #888;
-                padding: 30px;
-            }
-            .stats-mini {
-                display: flex;
-                justify-content: center;
-                gap: 20px;
-                margin-bottom: 20px;
-            }
-            .stat-mini {
-                text-align: center;
-            }
-            .stat-mini .num {
-                font-size: 1.5em;
-                color: #e94560;
-                font-weight: bold;
-            }
-            .stat-mini .label {
-                font-size: 0.8em;
-                color: #888;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>PANEL DEL BARMAN</h1>
-
-            <!-- ESCANEAR QR -->
-            <div class="input-section">
-                <input type="text" id="codigo-input" placeholder="INGRESA EL CODIGO QR" maxlength="8">
-                <button class="btn-validar" onclick="validar()">VALIDAR Y ENTREGAR</button>
-            </div>
-            <div id="resultado"></div>
-
-            <!-- COLA DE PEDIDOS -->
-            <div class="cola-section">
-                <h2>📋 Cola de Pedidos</h2>
-                <div class="stats-mini">
-                    <div class="stat-mini">
-                        <div class="num" id="pendientes-count">0</div>
-                        <div class="label">Pendientes</div>
-                    </div>
-                    <div class="stat-mini">
-                        <div class="num" id="entregados-count">0</div>
-                        <div class="label">Entregados</div>
-                    </div>
-                </div>
-                <div id="cola-list"></div>
-            </div>
-        </div>
-
-        <script>
-            document.getElementById('codigo-input').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') validar();
-            });
-
-            async function validar() {
-                const input = document.getElementById('codigo-input');
-                const codigo = input.value.trim().toUpperCase();
-                const resultado = document.getElementById('resultado');
-
-                if (codigo.length !== 8) {
-                    resultado.innerHTML = '<div class="resultado error">Codigo invalido (8 caracteres)</div>';
-                    return;
-                }
-
-                resultado.innerHTML = '<div class="resultado" style="background:rgba(243,156,18,0.2);">Verificando...</div>';
-
-                const res = await fetch('/api/validar-qr', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({codigo: codigo})
-                });
-
-                const data = await res.json();
-
-                if (data.ok) {
-                    let itemsHtml = data.items.map(i => 
-                        `<div>${i.cantidad}x ${i.bebida} <span style="float:right;color:#e94560;">$${i.subtotal.toFixed(2)}</span></div>`
-                    ).join('');
-
-                    resultado.innerHTML = `
-                        <div class="resultado ok">
-                            <h2 style="margin-bottom:10px;">ENTREGAR PEDIDO</h2>
-                            <div class="items-entrega">
-                                ${itemsHtml}
-                            </div>
-                            <div style="font-size:1.3em;color:#e94560;font-weight:bold;">
-                                Total: $${data.total.toFixed(2)}
-                            </div>
-                        </div>
-                    `;
-                    input.value = '';
-                    cargarCola();
-                } else {
-                    resultado.innerHTML = `<div class="resultado error">${data.error}</div>`;
-                }
-            }
-
-            async function cargarCola() {
-                const res = await fetch('/api/pedidos');
-                const pedidos = await res.json();
-                const list = document.getElementById('cola-list');
-
-                let pendientes = 0;
-                let entregados = 0;
-
-                pedidos.forEach(p => {
-                    if (p.entregado_en) entregados++;
-                    else pendientes++;
-                });
-
-                document.getElementById('pendientes-count').textContent = pendientes;
-                document.getElementById('entregados-count').textContent = entregados;
-
-                // Mostrar solo los ultimos 20, pendientes primero
-                const pedidosOrdenados = pedidos.sort((a, b) => {
-                    if (!a.entregado_en && b.entregado_en) return -1;
-                    if (a.entregado_en && !b.entregado_en) return 1;
-                    return new Date(b.creado_en) - new Date(a.creado_en);
-                }).slice(0, 20);
-
-                if (pedidosOrdenados.length === 0) {
-                    list.innerHTML = '<div class="sin-pedidos">Sin pedidos aun</div>';
-                    return;
-                }
-
-                list.innerHTML = pedidosOrdenados.map((p, index) => {
-                    const hora = new Date(p.creado_en).toLocaleTimeString('es-AR', {hour: '2-digit', minute:'2-digit'});
-                    return `
-                        <div class="pedido-cola ${p.entregado_en ? 'entregado' : ''}">
-                            <div class="pedido-numero">Pedido #${pedidos.length - index} ${p.entregado_en ? '- ENTREGADO' : ''}</div>
-                            <div class="pedido-items">${p.items_texto}</div>
-                            <div class="pedido-total">$${p.total.toFixed(2)}</div>
-                            <div class="pedido-hora">${hora}</div>
-                        </div>
-                    `;
-                }).join('');
-            }
-
-            cargarCola();
-            setInterval(cargarCola, 5000);
-        </script>
-    </body>
-    </html>
-    """
-
-
-# ============ PANEL ORGANIZADOR (STOCK + RECAUDACION) ============
-@app.get("/organizador", response_class=HTMLResponse)
-def panel_organizador():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Panel del Organizador</title>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-                font-family: 'Segoe UI', Arial, sans-serif; 
-                background: #1a1a2e;
-                min-height: 100vh;
-                color: white;
-                padding: 20px;
-            }
-            .container { max-width: 800px; margin: 0 auto; }
-            h1 { text-align: center; margin-bottom: 20px; color: #f39c12; }
-            .stats {
-                display: grid;
-                grid-template-columns: 1fr 1fr 1fr;
-                gap: 15px;
-                margin-bottom: 30px;
-            }
-            .stat-box {
-                background: rgba(255,255,255,0.1);
-                padding: 20px;
-                border-radius: 15px;
-                text-align: center;
-            }
-            .stat-number { font-size: 2.5em; color: #e94560; font-weight: bold; }
-            .stat-label { color: #888; margin-top: 5px; }
-            .section {
-                background: rgba(255,255,255,0.05);
-                border-radius: 15px;
-                padding: 20px;
-                margin-bottom: 20px;
-            }
-            .section h2 {
-                color: #f39c12;
-                margin-bottom: 15px;
-                border-bottom: 2px solid rgba(255,255,255,0.1);
-                padding-bottom: 10px;
-            }
-            .stock-item {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 12px;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-            }
-            .stock-item .nombre { font-size: 1.1em; }
-            .stock-item .precio { color: #888; font-size: 0.9em; }
-            .stock-controls {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-            }
-            .stock-actual {
-                font-size: 1.3em;
-                font-weight: bold;
-                min-width: 40px;
-                text-align: center;
-            }
-            .stock-actual.bajo { color: #f39c12; }
-            .stock-actual.agotado { color: #e94560; }
-            .stock-actual.ok { color: #27ae60; }
-            .stock-input {
-                width: 70px;
-                padding: 8px;
-                text-align: center;
-                border-radius: 8px;
-                border: 1px solid #27ae60;
-                background: rgba(255,255,255,0.1);
-                color: white;
-                font-size: 1em;
-            }
-            .btn-recargar {
-                background: #27ae60;
-                color: white;
-                border: none;
-                padding: 8px 20px;
-                border-radius: 8px;
-                cursor: pointer;
-                font-size: 1em;
-            }
-            .btn-recargar:hover { background: #2ecc71; }
-            .pedidos-list {
-                max-height: 400px;
-                overflow-y: auto;
-            }
-            .pedido-item {
-                display: flex;
-                justify-content: space-between;
-                padding: 12px;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-            }
-            .pedido-item.entregado { opacity: 0.5; }
-            .pedido-info { flex: 1; }
-            .pedido-codigo { font-family: monospace; color: #f39c12; font-size: 1.1em; }
-            .pedido-items { color: #888; font-size: 0.9em; margin-top: 3px; }
-            .pedido-total { color: #e94560; font-weight: bold; font-size: 1.2em; }
-            .pedido-estado {
-                font-size: 0.8em;
-                padding: 3px 10px;
-                border-radius: 10px;
-                display: inline-block;
-                margin-top: 5px;
-            }
-            .estado-pendiente { background: #f39c12; color: #1a1a2e; }
-            .estado-entregado { background: #27ae60; color: white; }
-            .refresh-btn {
-                background: #e94560;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 10px;
-                cursor: pointer;
-                margin-bottom: 15px;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>PANEL DEL ORGANIZADOR</h1>
-
-            <div class="stats">
-                <div class="stat-box">
-                    <div class="stat-number" id="total-pedidos">0</div>
-                    <div class="stat-label">Pedidos hoy</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number" id="total-entregados">0</div>
-                    <div class="stat-label">Entregados</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number" id="total-recaudado">$0</div>
-                    <div class="stat-label">Recaudado</div>
-                </div>
-            </div>
-
-            <div class="section">
-                <h2>📦 Control de Stock</h2>
-                <div id="stock-list"></div>
-            </div>
-
-            <div class="section">
-                <h2>📋 Pedidos del Evento</h2>
-                <button class="refresh-btn" onclick="cargarPedidos()">Actualizar</button>
-                <div class="pedidos-list" id="pedidos-list"></div>
-            </div>
-        </div>
-
-        <script>
-            async function cargarStats() {
-                const res = await fetch('/api/stats');
-                const data = await res.json();
-                document.getElementById('total-pedidos').textContent = data.total_pedidos;
-                document.getElementById('total-entregados').textContent = data.total_entregados;
-                document.getElementById('total-recaudado').textContent = '$' + data.total_recaudado.toFixed(0);
-            }
-
-            async function cargarStock() {
-                const res = await fetch('/api/bebidas');
-                const bebidas = await res.json();
-                const list = document.getElementById('stock-list');
-
-                list.innerHTML = bebidas.map(b => {
-                    const stockClass = b.stock <= 0 ? 'agotado' : (b.stock <= 5 ? 'bajo' : 'ok');
-                    return `
-                        <div class="stock-item">
-                            <div>
-                                <div class="nombre">${b.nombre}</div>
-                                <div class="precio">$${b.precio.toFixed(2)}</div>
-                            </div>
-                            <div class="stock-controls">
-                                <span class="stock-actual ${stockClass}">${b.stock}</span>
-                                <input type="number" class="stock-input" id="stock-${b.id}" value="10" min="1">
-                                <button class="btn-recargar" onclick="recargarStock(${b.id})">+ Agregar</button>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            }
-
-            async function recargarStock(bebidaId) {
-                const input = document.getElementById(`stock-${bebidaId}`);
-                const cantidad = parseInt(input.value);
-                if (cantidad <= 0) return;
-
-                const res = await fetch('/api/recargar-stock', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({bebida_id: bebidaId, cantidad: cantidad})
-                });
-
-                const data = await res.json();
-                if (data.ok) {
-                    input.value = 10;
-                    cargarStock();
-                }
-            }
-
-            async function cargarPedidos() {
-                const res = await fetch('/api/pedidos');
-                const pedidos = await res.json();
-                const list = document.getElementById('pedidos-list');
-
-                if (pedidos.length === 0) {
-                    list.innerHTML = '<p style="text-align:center;color:#888;padding:20px;">Sin pedidos aun</p>';
-                    return;
-                }
-
-                list.innerHTML = pedidos.map(p => `
-                    <div class="pedido-item ${p.entregado_en ? 'entregado' : ''}">
-                        <div class="pedido-info">
-                            <div class="pedido-codigo">${p.codigo_qr}</div>
-                            <div class="pedido-items">${p.items_texto}</div>
-                            <span class="pedido-estado ${p.entregado_en ? 'estado-entregado' : 'estado-pendiente'}">
-                                ${p.entregado_en ? 'Entregado' : 'Pendiente'}
-                            </span>
-                        </div>
-                        <div class="pedido-total">$${p.total.toFixed(2)}</div>
-                    </div>
-                `).join('');
-            }
-
-            cargarStats();
-            cargarStock();
-            cargarPedidos();
-            setInterval(() => { cargarStats(); cargarPedidos(); }, 10000);
-        </script>
-    </body>
-    </html>
-    """
-
-
-@app.post("/api/validar-qr")
-def validar_qr(data: dict):
-    codigo = data.get("codigo", "").upper().strip()
-
+@app.post("/api/entradas/crear-preferencia")
+async def crear_preferencia_entradas(
+    nombre: str = Form(...),
+    email: str = Form(""),
+    telefono: str = Form(""),
+    dni: str = Form(""),
+    tipo_entrada_id: int = Form(...),
+    cantidad: int = Form(...)
+):
     conn = get_db()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM pedidos WHERE codigo_qr = ?", (codigo,))
-    pedido = cursor.fetchone()
+    # Validar stock
+    tipo_row = cursor.execute(
+        "SELECT * FROM tipos_entrada WHERE id = ? AND activa = 1",
+        (tipo_entrada_id,)
+    ).fetchone()
 
-    if not pedido:
+    if not tipo_row:
         conn.close()
-        return {"ok": False, "error": "Codigo QR no encontrado"}
+        raise HTTPException(status_code=400, detail="Tipo de entrada no válido")
 
-    pedido = dict(pedido)
+    tipo = row_to_dict(tipo_row)
 
-    if pedido["estado"] != "pagado":
+    # Contar entradas vendidas de este tipo
+    vendidas_row = cursor.execute("""
+        SELECT COALESCE(SUM(cantidad), 0) as total FROM compras_entradas 
+        WHERE tipo_entrada_id = ? AND estado = 'pagado'
+    """, (tipo_entrada_id,)).fetchone()
+
+    vendidas = vendidas_row[0] if vendidas_row else 0
+    disponibles = tipo["stock"] - vendidas
+
+    if cantidad > disponibles:
         conn.close()
-        return {"ok": False, "error": "El pago no esta confirmado"}
+        raise HTTPException(status_code=400, detail=f"Solo quedan {disponibles} entradas disponibles")
 
-    if pedido["entregado_en"]:
+    if cantidad < 1 or cantidad > 10:
         conn.close()
-        return {"ok": False, "error": "Este pedido YA FUE ENTREGADO"}
+        raise HTTPException(status_code=400, detail="Cantidad debe ser entre 1 y 10")
 
+    total = tipo["precio"] * cantidad
+
+    # Crear compra
     cursor.execute("""
-                   SELECT ip.*, b.nombre as bebida_nombre
-                   FROM items_pedido ip
-                            JOIN bebidas b ON ip.bebida_id = b.id
-                   WHERE ip.pedido_id = ?
-                   """, (pedido["id"],))
-    items = [dict(row) for row in cursor.fetchall()]
+        INSERT INTO compras_entradas 
+        (nombre_comprador, email, telefono, dni, cantidad, total, estado)
+        VALUES (?, ?, ?, ?, ?, ?, 'pendiente')
+    """, (nombre, email, telefono, dni, cantidad, total))
 
-    ahora = datetime.now().isoformat()
-    cursor.execute("UPDATE pedidos SET entregado_en = ? WHERE id = ?", (ahora, pedido["id"]))
-    conn.commit()
-    conn.close()
+    compra_id = cursor.lastrowid
 
-    return {
-        "ok": True,
-        "items": [{"cantidad": i["cantidad"], "bebida": i["bebida_nombre"], "subtotal": i["subtotal"]} for i in items],
-        "total": pedido["total"]
-    }
+    # Crear entradas individuales
+    entradas_generadas = []
+    for i in range(1, cantidad + 1):
+        numero_entrada = f"{nombre} {i:03d}"
+        codigo = generar_codigo_entrada(compra_id, i)
 
-
-@app.post("/api/recargar-stock")
-def recargar_stock(data: dict):
-    bebida_id = data.get("bebida_id")
-    cantidad = data.get("cantidad", 0)
-
-    if cantidad <= 0:
-        return {"ok": False, "error": "Cantidad invalida"}
-
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE bebidas SET stock = stock + ? WHERE id = ?", (cantidad, bebida_id))
-    conn.commit()
-    conn.close()
-
-    return {"ok": True}
-
-
-@app.get("/api/stats")
-def get_stats():
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT COUNT(*) FROM pedidos WHERE DATE(creado_en) = DATE('now')")
-    total_pedidos = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM pedidos WHERE entregado_en IS NOT NULL AND DATE(creado_en) = DATE('now')")
-    total_entregados = cursor.fetchone()[0]
-
-    cursor.execute("""
-                   SELECT COALESCE(SUM(total), 0)
-                   FROM pedidos
-                   WHERE estado = 'pagado' AND DATE (creado_en) = DATE ('now')
-                   """)
-    total_recaudado = cursor.fetchone()[0]
-
-    conn.close()
-
-    return {
-        "total_pedidos": total_pedidos,
-        "total_entregados": total_entregados,
-        "total_recaudado": total_recaudado
-    }
-
-
-@app.get("/api/pedidos")
-def get_pedidos():
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM pedidos ORDER BY creado_en DESC LIMIT 50")
-    pedidos = [dict(row) for row in cursor.fetchall()]
-
-    for pedido in pedidos:
         cursor.execute("""
-                       SELECT ip.cantidad, b.nombre
-                       FROM items_pedido ip
-                                JOIN bebidas b ON ip.bebida_id = b.id
-                       WHERE ip.pedido_id = ?
-                       """, (pedido["id"],))
-        items = cursor.fetchall()
-        pedido["items_texto"] = ", ".join([f"{i['cantidad']}x {i['nombre']}" for i in items])
+            INSERT INTO entradas (compra_id, tipo_entrada_id, numero_entrada, codigo_qr, estado)
+            VALUES (?, ?, ?, ?, 'pendiente')
+        """, (compra_id, tipo_entrada_id, numero_entrada, codigo))
 
+        entradas_generadas.append({
+            "numero": numero_entrada,
+            "codigo": codigo
+        })
+
+    # Crear preferencia de MP
+    if MODO_PRUEBA:
+        mp_preference_id = f"TEST_PREF_{compra_id}_{secrets.token_hex(8)}"
+    else:
+        preference_data = {
+            "items": [{
+                "title": f"Entrada {tipo['nombre']} - {nombre}",
+                "quantity": cantidad,
+                "unit_price": tipo["precio"]
+            }],
+            "payer": {
+                "name": nombre,
+                "email": email or "test@test.com"
+            },
+            "back_urls": {
+                "success": f"https://barra-rapida.onrender.com/entradas/exito/{compra_id}",
+                "failure": f"https://barra-rapida.onrender.com/entradas/error/{compra_id}"
+            },
+            "auto_return": "approved",
+            "external_reference": str(compra_id)
+        }
+        preference = mp_sdk.preference().create(preference_data)
+        mp_preference_id = preference["response"]["id"]
+
+    cursor.execute(
+        "UPDATE compras_entradas SET mp_preference_id = ? WHERE id = ?",
+        (mp_preference_id, compra_id)
+    )
+
+    conn.commit()
     conn.close()
-    return pedidos
 
+    return {
+        "compra_id": compra_id,
+        "mp_preference_id": mp_preference_id,
+        "total": total,
+        "entradas": entradas_generadas,
+        "modo_prueba": MODO_PRUEBA
+    }
 
-@app.get("/pago-exitoso/{pedido_id}")
-def pago_exitoso(pedido_id: int):
+@app.get("/entradas/exito/{compra_id}", response_class=HTMLResponse)
+async def exito_entradas(request: Request, compra_id: int):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT codigo_qr FROM pedidos WHERE id = ?", (pedido_id,))
-    pedido = cursor.fetchone()
+
+    # Simular pago en modo prueba
+    if MODO_PRUEBA:
+        cursor.execute("""
+            UPDATE compras_entradas 
+            SET estado = 'pagado', pagado_en = ? 
+            WHERE id = ?
+        """, (datetime.now(), compra_id))
+
+        cursor.execute("""
+            UPDATE entradas SET estado = 'pagado' WHERE compra_id = ?
+        """, (compra_id,))
+
+        conn.commit()
+
+    # Obtener datos de la compra
+    compra_row = cursor.execute("""
+        SELECT c.*, t.nombre as tipo_nombre, t.precio 
+        FROM compras_entradas c
+        JOIN entradas e ON c.id = e.compra_id
+        JOIN tipos_entrada t ON e.tipo_entrada_id = t.id
+        WHERE c.id = ?
+        GROUP BY c.id
+    """, (compra_id,)).fetchone()
+
+    compra = row_to_dict(compra_row)
+
+    entradas_rows = cursor.execute("""
+        SELECT e.*, t.nombre as tipo_nombre, t.precio
+        FROM entradas e
+        JOIN tipos_entrada t ON e.tipo_entrada_id = t.id
+        WHERE e.compra_id = ?
+    """, (compra_id,)).fetchall()
+
+    entradas = rows_to_dicts(entradas_rows)
+
+    # Generar QR en base64 para cada entrada
+    entradas_con_qr = []
+    for entrada in entradas:
+        qr_data = json.dumps({
+            "codigo": entrada["codigo_qr"],
+            "nombre": entrada["numero_entrada"],
+            "tipo": entrada["tipo_nombre"],
+            "comprador": compra["nombre_comprador"]
+        })
+        qr_b64 = generar_qr_base64(qr_data)
+        entradas_con_qr.append({
+            **entrada,
+            "qr_base64": qr_b64,
+            "qr_data": qr_data
+        })
+
     conn.close()
 
-    if pedido:
-        return f"<script>window.location.href = '/qr/{pedido[0]}';</script>"
-    return "Pedido no encontrado"
+    return templates.TemplateResponse("entradas_exito.html", {
+        "request": request,
+        "compra": compra,
+        "entradas": entradas_con_qr,
+        "modo_prueba": MODO_PRUEBA
+    })
 
+# ========================
+# API PARA VALIDAR ENTRADA (USADO POR GUARDIAS)
+# ========================
+@app.post("/api/entradas/validar")
+async def validar_entrada(codigo_qr: str = Form(...), guardia: str = Form(...)):
+    conn = get_db()
+    cursor = conn.cursor()
 
-@app.get("/pago-fallido")
-def pago_fallido():
-    return "<h1 style='text-align:center;color:red;'>Pago fallido. Intenta de nuevo.</h1>"
+    entrada_row = cursor.execute("""
+        SELECT e.*, c.nombre_comprador, t.nombre as tipo_nombre
+        FROM entradas e
+        JOIN compras_entradas c ON e.compra_id = c.id
+        JOIN tipos_entrada t ON e.tipo_entrada_id = t.id
+        WHERE e.codigo_qr = ?
+    """, (codigo_qr,)).fetchone()
 
+    if not entrada_row:
+        conn.close()
+        return {"valido": False, "mensaje": "Entrada no encontrada"}
 
-@app.get("/pago-pendiente")
-def pago_pendiente():
-    return "<h1 style='text-align:center;color:orange;'>Pago pendiente.</h1>"
+    entrada = row_to_dict(entrada_row)
 
+    if entrada["estado"] == "usada":
+        conn.close()
+        return {
+            "valido": False,
+            "mensaje": "Entrada YA USADA",
+            "usada_en": entrada["usada_en"],
+            "usada_por": entrada["usada_por_guardia"],
+            "nombre": entrada["nombre_comprador"],
+            "tipo": entrada["tipo_nombre"],
+            "numero": entrada["numero_entrada"]
+        }
 
+    if entrada["estado"] != "pagado":
+        conn.close()
+        return {"valido": False, "mensaje": "Entrada no pagada"}
+
+    # Marcar como usada
+    cursor.execute("""
+        UPDATE entradas 
+        SET estado = 'usada', usada_en = ?, usada_por_guardia = ?
+        WHERE id = ?
+    """, (datetime.now(), guardia, entrada["id"]))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "valido": True,
+        "mensaje": "¡Entrada válida! Acceso permitido",
+        "nombre": entrada["nombre_comprador"],
+        "tipo": entrada["tipo_nombre"],
+        "numero": entrada["numero_entrada"],
+        "guardia": guardia
+    }
+
+@app.get("/api/entradas/estado/{codigo}")
+async def estado_entrada(codigo: str):
+    conn = get_db()
+    entrada_row = conn.execute("""
+        SELECT e.*, c.nombre_comprador, t.nombre as tipo_nombre
+        FROM entradas e
+        JOIN compras_entradas c ON e.compra_id = c.id
+        JOIN tipos_entrada t ON e.tipo_entrada_id = t.id
+        WHERE e.codigo_qr = ?
+    """, (codigo,)).fetchone()
+    conn.close()
+
+    if not entrada_row:
+        return {"existe": False}
+
+    entrada = row_to_dict(entrada_row)
+
+    return {
+        "existe": True,
+        "estado": entrada["estado"],
+        "nombre": entrada["nombre_comprador"],
+        "tipo": entrada["tipo_nombre"],
+        "numero": entrada["numero_entrada"],
+        "usada_en": entrada["usada_en"],
+        "usada_por": entrada["usada_por_guardia"]
+    }
+
+# ========================
+# PÁGINA DE GUARDIAS
+# ========================
+@app.get("/guardia", response_class=HTMLResponse)
+async def pagina_guardia(request: Request):
+    return templates.TemplateResponse("guardia_login.html", {"request": request})
+
+@app.post("/guardia/login")
+async def login_guardia(username: str = Form(...), password: str = Form(...)):
+    conn = get_db()
+    guardia_row = conn.execute(
+        "SELECT * FROM guardias WHERE username = ? AND password = ? AND activo = 1",
+        (username, password)
+    ).fetchone()
+    conn.close()
+
+    if not guardia_row:
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    guardia = row_to_dict(guardia_row)
+
+    return {"success": True, "username": username, "nombre": guardia["nombre"]}
+
+@app.get("/guardia/escaner", response_class=HTMLResponse)
+async def escaner_guardia(request: Request, guardia: str = Query(...)):
+    return templates.TemplateResponse("guardia_escaner.html", {
+        "request": request,
+        "guardia": guardia
+    })
+
+# ========================
+# PANEL DEL ORGANIZADOR - ENTRADAS
+# ========================
+@app.get("/organizador/entradas", response_class=HTMLResponse)
+async def panel_entradas(request: Request):
+    conn = get_db()
+
+    # Estadísticas
+    stats_row = conn.execute("""
+        SELECT 
+            COUNT(*) as total_compras,
+            SUM(CASE WHEN estado = 'pagado' THEN 1 ELSE 0 END) as pagadas,
+            SUM(CASE WHEN estado = 'pendiente' THEN 1 ELSE 0 END) as pendientes,
+            SUM(CASE WHEN estado = 'pagado' THEN total ELSE 0 END) as recaudado
+        FROM compras_entradas
+    """).fetchone()
+
+    stats = row_to_dict(stats_row)
+
+    # Entradas usadas
+    usadas_row = conn.execute("""
+        SELECT COUNT(*) as total FROM entradas WHERE estado = 'usada'
+    """).fetchone()
+
+    usadas = usadas_row[0] if usadas_row else 0
+
+    # Compras recientes
+    compras_rows = conn.execute("""
+        SELECT c.*, t.nombre as tipo_nombre
+        FROM compras_entradas c
+        LEFT JOIN entradas e ON c.id = e.compra_id
+        LEFT JOIN tipos_entrada t ON e.tipo_entrada_id = t.id
+        GROUP BY c.id
+        ORDER BY c.creado_en DESC
+        LIMIT 50
+    """).fetchall()
+
+    compras = rows_to_dicts(compras_rows)
+
+    # Stock por tipo
+    stock_rows = conn.execute("""
+        SELECT t.*, 
+            COALESCE((SELECT COUNT(*) FROM entradas e 
+                      JOIN compras_entradas c ON e.compra_id = c.id 
+                      WHERE e.tipo_entrada_id = t.id AND c.estado = 'pagado'), 0) as vendidas
+        FROM tipos_entrada t
+    """).fetchall()
+
+    stock = rows_to_dicts(stock_rows)
+
+    # Entradas usadas por guardia
+    por_guardia_rows = conn.execute("""
+        SELECT usada_por_guardia, COUNT(*) as cantidad
+        FROM entradas WHERE estado = 'usada'
+        GROUP BY usada_por_guardia
+    """).fetchall()
+
+    por_guardia = rows_to_dicts(por_guardia_rows)
+
+    conn.close()
+
+    return templates.TemplateResponse("organizador_entradas.html", {
+        "request": request,
+        "stats": stats,
+        "usadas": usadas,
+        "compras": compras,
+        "stock": stock,
+        "por_guardia": por_guardia
+    })
+
+@app.get("/organizador/entradas/qr/{compra_id}", response_class=HTMLResponse)
+async def ver_qr_organizador(request: Request, compra_id: int):
+    conn = get_db()
+
+    compra_row = conn.execute("""
+        SELECT c.*, t.nombre as tipo_nombre
+        FROM compras_entradas c
+        JOIN entradas e ON c.id = e.compra_id
+        JOIN tipos_entrada t ON e.tipo_entrada_id = t.id
+        WHERE c.id = ?
+        GROUP BY c.id
+    """, (compra_id,)).fetchone()
+
+    compra = row_to_dict(compra_row)
+
+    entradas_rows = conn.execute("""
+        SELECT e.*, t.nombre as tipo_nombre
+        FROM entradas e
+        JOIN tipos_entrada t ON e.tipo_entrada_id = t.id
+        WHERE e.compra_id = ?
+    """, (compra_id,)).fetchall()
+
+    entradas = rows_to_dicts(entradas_rows)
+
+    entradas_con_qr = []
+    for entrada in entradas:
+        qr_data = json.dumps({
+            "codigo": entrada["codigo_qr"],
+            "nombre": entrada["numero_entrada"],
+            "tipo": entrada["tipo_nombre"],
+            "comprador": compra["nombre_comprador"]
+        })
+        qr_b64 = generar_qr_base64(qr_data)
+        entradas_con_qr.append({
+            **entrada,
+            "qr_base64": qr_b64
+        })
+
+    conn.close()
+
+    return templates.TemplateResponse("organizador_qr.html", {
+        "request": request,
+        "compra": compra,
+        "entradas": entradas_con_qr
+    })
+
+@app.post("/api/entradas/recargar-stock")
+async def recargar_stock(tipo_id: int = Form(...), cantidad: int = Form(...)):
+    conn = get_db()
+    conn.execute(
+        "UPDATE tipos_entrada SET stock = stock + ? WHERE id = ?",
+        (cantidad, tipo_id)
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ========================
+# PÁGINAS ORIGINALES (BEBIDAS)
+# ========================
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM bebidas WHERE activa = 1").fetchall()
+    bebidas = rows_to_dicts(rows)
+    conn.close()
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "bebidas": bebidas
+    })
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin(request: Request):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT p.*, 
+            (SELECT GROUP_CONCAT(b.nombre || ' x' || i.cantidad, ', ')
+             FROM items_pedido i 
+             JOIN bebidas b ON i.bebida_id = b.id 
+             WHERE i.pedido_id = p.id) as items
+        FROM pedidos p 
+        WHERE p.estado = 'pagado' AND p.entregado_en IS NULL
+        ORDER BY p.creado_en DESC
+    """).fetchall()
+    pedidos = rows_to_dicts(rows)
+    conn.close()
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "pedidos": pedidos
+    })
+
+@app.get("/organizador", response_class=HTMLResponse)
+async def organizador(request: Request):
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM bebidas").fetchall()
+    bebidas = rows_to_dicts(rows)
+
+    recaudacion_row = conn.execute("""
+        SELECT COALESCE(SUM(total), 0) as total FROM pedidos WHERE estado = 'pagado'
+    """).fetchone()
+    recaudacion = recaudacion_row[0] if recaudacion_row else 0
+
+    total_pedidos_row = conn.execute(
+        "SELECT COUNT(*) FROM pedidos WHERE estado = 'pagado'"
+    ).fetchone()
+    total_pedidos = total_pedidos_row[0] if total_pedidos_row else 0
+
+    conn.close()
+
+    return templates.TemplateResponse("organizador.html", {
+        "request": request,
+        "bebidas": bebidas,
+        "recaudacion": recaudacion,
+        "total_pedidos": total_pedidos
+    })
+
+@app.post("/api/pedido")
+async def crear_pedido(items: str = Form(...)):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    items_list = json.loads(items)
+    total = 0
+
+    for item in items_list:
+        bebida_row = cursor.execute(
+            "SELECT * FROM bebidas WHERE id = ?", (item["id"],)
+        ).fetchone()
+        if bebida_row:
+            bebida = row_to_dict(bebida_row)
+            if bebida["stock"] >= item["cantidad"]:
+                total += bebida["precio"] * item["cantidad"]
+
+    cursor.execute(
+        "INSERT INTO pedidos (estado, total) VALUES ('pendiente', ?)",
+        (total,)
+    )
+    pedido_id = cursor.lastrowid
+
+    for item in items_list:
+        bebida_row = cursor.execute(
+            "SELECT * FROM bebidas WHERE id = ?", (item["id"],)
+        ).fetchone()
+        if bebida_row:
+            bebida = row_to_dict(bebida_row)
+            subtotal = bebida["precio"] * item["cantidad"]
+            cursor.execute("""
+                INSERT INTO items_pedido (pedido_id, bebida_id, cantidad, precio_unitario, subtotal)
+                VALUES (?, ?, ?, ?, ?)
+            """, (pedido_id, item["id"], item["cantidad"], bebida["precio"], subtotal))
+            cursor.execute(
+                "UPDATE bebidas SET stock = stock - ? WHERE id = ?",
+                (item["cantidad"], item["id"])
+            )
+
+    conn.commit()
+    conn.close()
+
+    return {"pedido_id": pedido_id, "total": total}
+
+@app.get("/api/qr/{pedido_id}")
+async def get_qr(pedido_id: int):
+    conn = get_db()
+    pedido_row = conn.execute(
+        "SELECT * FROM pedidos WHERE id = ?", (pedido_id,)
+    ).fetchone()
+    conn.close()
+
+    if not pedido_row:
+        raise HTTPException(status_code=404)
+
+    qr_b64 = generar_qr_base64(str(pedido_id))
+    return {"qr": qr_b64, "codigo": str(pedido_id)}
+
+@app.post("/api/entregar")
+async def entregar_pedido(pedido_id: int = Form(...)):
+    conn = get_db()
+    conn.execute(
+        "UPDATE pedidos SET entregado_en = ? WHERE id = ?",
+        (datetime.now(), pedido_id)
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+@app.post("/api/bebidas/recargar")
+async def recargar_bebida(bebida_id: int = Form(...), cantidad: int = Form(...)):
+    conn = get_db()
+    conn.execute(
+        "UPDATE bebidas SET stock = stock + ? WHERE id = ?",
+        (cantidad, bebida_id)
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ========================
+# INICIAR SERVIDOR
+# ========================
 if __name__ == "__main__":
     import uvicorn
-
-    print("=" * 50)
-    print("BARRA RAPIDA - INICIADO")
-    print("=" * 50)
-    print("Cliente:    http://localhost:8000")
-    print("Barman:     http://localhost:8000/admin")
-    print("Organizador: http://localhost:8000/organizador")
-    print("=" * 50)
     uvicorn.run(app, host="0.0.0.0", port=8000)

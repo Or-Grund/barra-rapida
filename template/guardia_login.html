@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔐 Acceso Guardias</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+        .login-box {
+            background: rgba(255,255,255,0.95);
+            color: #1a1a2e;
+            padding: 40px;
+            border-radius: 20px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+        }
+        .login-box h1 { text-align: center; margin-bottom: 10px; color: #0f3460; }
+        .login-box .subtitle { text-align: center; color: #666; margin-bottom: 30px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: bold; color: #333; }
+        .form-group input {
+            width: 100%; padding: 14px; border: 2px solid #ddd;
+            border-radius: 10px; font-size: 1em;
+        }
+        .btn-login {
+            width: 100%; padding: 16px;
+            background: linear-gradient(135deg, #e94560, #ff6b6b);
+            color: white; border: none; border-radius: 10px;
+            font-size: 1.2em; font-weight: bold; cursor: pointer;
+        }
+        .alert {
+            padding: 12px; border-radius: 8px; margin-bottom: 20px;
+            display: none; text-align: center;
+        }
+        .alert.error { background: #f8d7da; color: #721c24; display: block; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>🔐 Acceso Guardias</h1>
+        <p class="subtitle">Fiesta de Folklore 2026</p>
+        <div id="alert" class="alert"></div>
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Usuario</label>
+                <input type="text" id="username" name="username" required placeholder="Ej: Guardia_1">
+            </div>
+            <div class="form-group">
+                <label for="password">Contraseña</label>
+                <input type="password" id="password" name="password" required placeholder="Tu contraseña">
+            </div>
+            <button type="submit" class="btn-login">INGRESAR</button>
+        </form>
+    </div>
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            try {
+                const response = await fetch('/guardia/login', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    localStorage.setItem('guardia_username', data.username);
+                    localStorage.setItem('guardia_nombre', data.nombre);
+                    window.location.href = '/guardia/escaner?guardia=' + encodeURIComponent(data.username);
+                } else {
+                    document.getElementById('alert').className = 'alert error';
+                    document.getElementById('alert').textContent = 'Usuario o contraseña incorrectos';
+                }
+            } catch (err) {
+                document.getElementById('alert').className = 'alert error';
+                document.getElementById('alert').textContent = 'Error de conexión';
+            }
+        });
+    </script>
+</body>
+</html>
