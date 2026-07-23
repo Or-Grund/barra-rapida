@@ -225,8 +225,7 @@ async def pagina_entradas(request: Request):
     ).fetchall()
     tipos = rows_to_dicts(rows)
     conn.close()
-    return templates.TemplateResponse("entradas_publico.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "entradas_publico.html", {
         "tipos": tipos,
         "modo_prueba": MODO_PRUEBA
     })
@@ -397,8 +396,7 @@ async def exito_entradas(request: Request, compra_id: int):
 
     conn.close()
 
-    return templates.TemplateResponse("entradas_exito.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "entradas_exito.html", {
         "compra": compra,
         "entradas": entradas_con_qr,
         "modo_prueba": MODO_PRUEBA
@@ -493,7 +491,7 @@ async def estado_entrada(codigo: str):
 # ========================
 @app.get("/guardia", response_class=HTMLResponse)
 async def pagina_guardia(request: Request):
-    return templates.TemplateResponse("guardia_login.html", {"request": request})
+    return templates.TemplateResponse(request, "guardia_login.html", {})
 
 @app.post("/guardia/login")
 async def login_guardia(username: str = Form(...), password: str = Form(...)):
@@ -513,8 +511,7 @@ async def login_guardia(username: str = Form(...), password: str = Form(...)):
 
 @app.get("/guardia/escaner", response_class=HTMLResponse)
 async def escaner_guardia(request: Request, guardia: str = Query(...)):
-    return templates.TemplateResponse("guardia_escaner.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "guardia_escaner.html", {
         "guardia": guardia
     })
 
@@ -579,8 +576,7 @@ async def panel_entradas(request: Request):
 
     conn.close()
 
-    return templates.TemplateResponse("organizador_entradas.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "organizador_entradas.html", {
         "stats": stats,
         "usadas": usadas,
         "compras": compras,
@@ -628,8 +624,7 @@ async def ver_qr_organizador(request: Request, compra_id: int):
 
     conn.close()
 
-    return templates.TemplateResponse("organizador_qr.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "organizador_qr.html", {
         "compra": compra,
         "entradas": entradas_con_qr
     })
@@ -654,8 +649,7 @@ async def index(request: Request):
     rows = conn.execute("SELECT * FROM bebidas WHERE activa = 1").fetchall()
     bebidas = rows_to_dicts(rows)
     conn.close()
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "bebidas": bebidas
     })
 
@@ -674,8 +668,7 @@ async def admin(request: Request):
     """).fetchall()
     pedidos = rows_to_dicts(rows)
     conn.close()
-    return templates.TemplateResponse("admin.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "admin.html", {
         "pedidos": pedidos
     })
 
@@ -697,8 +690,7 @@ async def organizador(request: Request):
 
     conn.close()
 
-    return templates.TemplateResponse("organizador.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "organizador.html", {
         "bebidas": bebidas,
         "recaudacion": recaudacion,
         "total_pedidos": total_pedidos
