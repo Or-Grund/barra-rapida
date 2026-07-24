@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
+<!-- saved from url=(0062)blob:https://www.kimi.com/524a5e38-a7cb-425e-8075-6c67d22b0fea -->
+<html lang="es"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Comprar Entradas - Fiesta de Folklore 2026</title>
     <style>
@@ -43,11 +43,6 @@
             border-radius: 8px;
             font-size: 1em;
         }
-        .form-group input:focus, .form-group select:focus {
-            outline: none;
-            border-color: #e94560;
-        }
-        .form-group .hint { color: #666; font-size: 0.85em; margin-top: 3px; }
         .quantity-selector {
             display: flex;
             align-items: center;
@@ -112,7 +107,7 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         .footer { text-align: center; padding: 20px; color: rgba(255,255,255,0.6); font-size: 0.9em; }
     </style>
-<base target="_blank">
+<!--<base target="_blank">--><base href="." target="_blank">
 </head>
 <body>
     <div class="container">
@@ -134,21 +129,19 @@
                 <h3>Datos del Comprador</h3>
                 <div class="form-group">
                     <label for="nombre">Nombre completo *</label>
-                    <input type="text" id="nombre" name="nombre" required placeholder="Ej: Gabriel Torres">
+                    <input type="text" id="nombre" name="nombre" required="" placeholder="Ej: Gabriel Torres">
                 </div>
                 <div class="form-group">
-                    <label for="email">Email *</label>
-                    <input type="email" id="email" name="email" required placeholder="Ej: tuemail@gmail.com">
-                    <div class="hint">Solo Gmail, Outlook o Hotmail</div>
+                    <label for="dni">DNI *</label>
+                    <input type="text" id="dni" name="dni" required="" placeholder="Ej: 35123456">
                 </div>
                 <div class="form-group">
-                    <label for="telefono">Teléfono *</label>
-                    <input type="tel" id="telefono" name="telefono" required placeholder="Ej: 3816555333" pattern="^381[0-9]{7}$">
-                    <div class="hint">Área Tucumán (381) - 10 dígitos sin espacios</div>
+                    <label for="email">Email (opcional)</label>
+                    <input type="email" id="email" name="email" placeholder="Para recibir copia de las entradas">
                 </div>
                 <div class="form-group">
-                    <label for="dni">DNI (opcional)</label>
-                    <input type="text" id="dni" name="dni" placeholder="Ej: 35123456">
+                    <label for="telefono">Teléfono (opcional)</label>
+                    <input type="tel" id="telefono" name="telefono" placeholder="Ej: 11 1234-5678">
                 </div>
             </div>
 
@@ -156,10 +149,10 @@
                 <h3>Tipo de Entrada</h3>
                 <div class="form-group">
                     <label for="tipo_entrada">Seleccioná el tipo de entrada</label>
-                    <select id="tipo_entrada" name="tipo_entrada_id" required>
+                    <select id="tipo_entrada" name="tipo_entrada_id" required="">
                         <option value="">-- Elegí una opción --</option>
                         {% for tipo in tipos %}
-                        <option value="{{ tipo['id'] }}" data-precio="{{ tipo['precio'] }}" data-stock="{{ tipo['stock'] }}">
+                        <option value="{{ tipo[&#39;id&#39;] }}" data-precio="{{ tipo[&#39;precio&#39;] }}" data-stock="{{ tipo[&#39;stock&#39;] }}">
                             {{ tipo['nombre'] }} - ${{ tipo['precio']|int }}
                         </option>
                         {% endfor %}
@@ -257,73 +250,34 @@
 
         document.getElementById('compraForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-
-            // Validaciones
-            const nombre = document.getElementById('nombre').value.trim();
-            const email = document.getElementById('email').value.trim();
-            const telefono = document.getElementById('telefono').value.trim();
-
-            if (!nombre) {
-                showAlert('Ingresá tu nombre completo', 'error');
-                return;
-            }
-
-            if (!email) {
-                showAlert('Ingresá tu email', 'error');
-                return;
-            }
-
-            const emailLower = email.toLowerCase();
-            if (!emailLower.endsWith('@gmail.com') && !emailLower.endsWith('@outlook.com') && !emailLower.endsWith('@hotmail.com')) {
-                showAlert('Solo se permiten emails de Gmail, Outlook o Hotmail', 'error');
-                return;
-            }
-
-            if (!telefono) {
-                showAlert('Ingresá tu teléfono', 'error');
-                return;
-            }
-
-            if (!telefono.match(/^381[0-9]{7}$/)) {
-                showAlert('El teléfono debe ser de área Tucumán (381) + 7 dígitos. Ej: 3816555333', 'error');
-                return;
-            }
-
             if (!tipoSelect.value) {
                 showAlert('Seleccioná un tipo de entrada', 'error');
                 return;
             }
-
             const formData = new FormData(this);
             document.getElementById('loading').classList.add('show');
             btnComprar.disabled = true;
-
             try {
                 const response = await fetch('/api/entradas/crear-preferencia', {
                     method: 'POST',
                     body: formData
                 });
-
                 const data = await response.json();
-
                 if (response.ok) {
                     showAlert('Compra procesada! Redirigiendo...', 'success');
-                    // Redirigir a la página de éxito después de 1 segundo
                     setTimeout(() => {
                         window.location.href = '/entradas/exito/' + data.compra_id;
-                    }, 1000);
+                    }, 1500);
                 } else {
                     showAlert(data.detail || 'Error al procesar la compra', 'error');
                     btnComprar.disabled = false;
                 }
             } catch (err) {
-                console.error('Error:', err);
                 showAlert('Error de conexion. Intenta de nuevo.', 'error');
                 btnComprar.disabled = false;
             }
-
             document.getElementById('loading').classList.remove('show');
         });
     </script>
-</body>
-</html>
+
+</body></html>

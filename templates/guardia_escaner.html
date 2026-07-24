@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>📷 Escanear Entradas</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #0f3460, #16213e);
+            padding: 15px;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        .header h1 { font-size: 1.3em; }
+        .header .guardia-name { color: #e94560; font-weight: bold; }
+        .scanner-container { padding: 20px; max-width: 500px; margin: 0 auto; }
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+        .stat-box {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 15px; text-align: center;
+        }
+        .stat-box .number { font-size: 2em; font-weight: bold; color: #e94560; }
+        .stat-box .label { font-size: 0.85em; color: #aaa; }
+        .camera-btn {
+            width: 100%; padding: 15px;
+            background: #e94560; color: white;
+            border: none; border-radius: 10px;
+            font-size: 1.1em; font-weight: bold; cursor: pointer;
+            margin-bottom: 15px;
+        }
+        .scanner-box {
+            background: #000; border-radius: 15px;
+            overflow: hidden; position: relative;
+            aspect-ratio: 1; margin-bottom: 20px;
+            border: 3px solid #e94560; display: none;
+        }
+        .scanner-box video { width: 100%; height: 100%; object-fit: cover; }
+        .manual-input {
+            background: rgba(255,255,255,0.1);
+            border-radius: 12px; padding: 15px; margin-bottom: 20px;
+        }
+        .manual-input h3 { margin-bottom: 10px; font-size: 1em; }
+        .manual-input input {
+            width: 100%; padding: 12px;
+            border: 2px solid #0f3460; border-radius: 8px;
+            background: rgba(255,255,255,0.9); color: #1a1a2e;
+            font-size: 1em; margin-bottom: 10px;
+        }
+        .manual-input button {
+            width: 100%; padding: 12px;
+            background: #0f3460; color: white;
+            border: none; border-radius: 8px; font-weight: bold; cursor: pointer;
+        }
+        .result-box {
+            border-radius: 15px; padding: 20px;
+            margin-bottom: 20px; text-align: center;
+            display: none; animation: slideUp 0.3s ease;
+        }
+        .result-box.show { display: block; }
+        .result-box.valid { background: linear-gradient(135deg, #22c55e, #16a34a); }
+        .result-box.invalid { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .result-box.used { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .result-box .icon { font-size: 3em; margin-bottom: 10px; }
+        .result-box h2 { font-size: 1.5em; margin-bottom: 10px; }
+        .result-box .details {
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px; padding: 15px; margin-top: 15px; text-align: left;
+        }
+        .result-box .details p { margin: 5px 0; }
+        .result-box .details .label { opacity: 0.8; font-size: 0.9em; }
+        .result-box .details .value { font-weight: bold; font-size: 1.1em; }
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .btn-logout {
+            width: 100%; padding: 15px;
+            background: rgba(255,255,255,0.1); color: #fff;
+            border: 2px solid rgba(255,255,255,0.3); border-radius: 10px;
+            font-size: 1em; cursor: pointer; margin-top: 10px;
+        }
+        #cameraError { display: none; background: #f8d7da; color: #721c24; padding: 15px; border-radius: 10px; margin-bottom: 15px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📷 Control de Accesos</h1>
+        <p>Guardia: <span class="guardia-name" id="guardiaName">{{ guardia }}</span></p>
+    </div>
+
+    <div class="scanner-container">
+        <div class="stats">
+            <div class="stat-box">
+                <div class="number" id="scanCount">0</div>
+                <div class="label">Escaneadas</div>
+            </div>
+            <div class="stat-box">
+                <div class="number" id="validCount">0</div>
+                <div class="label">Válidas</div>
+            </div>
+        </div>
+
+        <div id="cameraError">
+            <p>⚠️ No se pudo acceder a la cámara</p>
+            <p>Usá el ingreso manual del código</p>
+        </div>
+
+        <button class="camera-btn" id="btnCamera" onclick="startCamera()">📷 Activar Cámara</button>
+
+        <div class="scanner-box" id="scannerBox">
+            <video id="video" autoplay playsinline></video>
+        </div>
+
+        <div class="manual-input">
+            <h3>⌨️ Ingreso Manual (si la cámara no funciona)</h3>
+            <input type="text" id="manualCode" placeholder="Pegá el código QR aquí...">
+            <button onclick="validarManual()">VALIDAR ENTRADA</button>
+        </div>
+
+        <div id="resultBox" class="result-box">
+            <div class="icon" id="resultIcon">✅</div>
+            <h2 id="resultTitle">Entrada Válida</h2>
+            <p id="resultMessage">Acceso permitido</p>
+            <div class="details" id="resultDetails"></div>
+        </div>
+
+        <button class="btn-logout" onclick="logout()">🚪 Cerrar Sesión</button>
+    </div>
+
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+        const guardia = "{{ guardia }}";
+        let scanCount = 0;
+        let validCount = 0;
+        let html5QrCode = null;
+        let isScanning = false;
+
+        if (!guardia || guardia === 'None') {
+            const saved = localStorage.getItem('guardia_username');
+            if (saved) {
+                window.location.href = '/guardia/escaner?guardia=' + encodeURIComponent(saved);
+            } else {
+                window.location.href = '/guardia';
+            }
+        }
+
+        function updateStats() {
+            document.getElementById('scanCount').textContent = scanCount;
+            document.getElementById('validCount').textContent = validCount;
+        }
+
+        function showResult(data, type) {
+            const box = document.getElementById('resultBox');
+            const icon = document.getElementById('resultIcon');
+            const title = document.getElementById('resultTitle');
+            const message = document.getElementById('resultMessage');
+            const details = document.getElementById('resultDetails');
+
+            box.className = 'result-box show ' + type;
+
+            if (type === 'valid') {
+                icon.textContent = '✅';
+                title.textContent = '¡ENTRADA VÁLIDA!';
+                message.textContent = 'Acceso permitido';
+                validCount++;
+                playSound('success');
+            } else if (type === 'used') {
+                icon.textContent = '⚠️';
+                title.textContent = 'ENTRADA YA USADA';
+                message.textContent = 'Esta entrada ya fue escaneada';
+                playSound('warning');
+            } else {
+                icon.textContent = '❌';
+                title.textContent = 'ENTRADA INVÁLIDA';
+                message.textContent = data.mensaje || 'No se encontró la entrada';
+                playSound('error');
+            }
+
+            if (data.nombre) {
+                details.innerHTML = `
+                    <p><span class="label">Nombre:</span> <span class="value">${data.nombre}</span></p>
+                    <p><span class="label">Entrada:</span> <span class="value">${data.numero || ''}</span></p>
+                    <p><span class="label">Tipo:</span> <span class="value">${data.tipo || ''}</span></p>
+                    ${data.usada_por ? `<p><span class="label">Usada por:</span> <span class="value">${data.usada_por}</span></p>` : ''}
+                `;
+            } else {
+                details.innerHTML = '';
+            }
+
+            scanCount++;
+            updateStats();
+            setTimeout(() => { box.classList.remove('show'); }, 5000);
+        }
+
+        function playSound(type) {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            if (type === 'success') {
+                osc.frequency.value = 800;
+                gain.gain.value = 0.3;
+                osc.start();
+                osc.stop(ctx.currentTime + 0.2);
+                setTimeout(() => {
+                    const osc2 = ctx.createOscillator();
+                    const gain2 = ctx.createGain();
+                    osc2.connect(gain2);
+                    gain2.connect(ctx.destination);
+                    osc2.frequency.value = 1200;
+                    gain2.gain.value = 0.3;
+                    osc2.start();
+                    osc2.stop(ctx.currentTime + 0.2);
+                }, 150);
+            } else if (type === 'error') {
+                osc.frequency.value = 200;
+                gain.gain.value = 0.3;
+                osc.start();
+                osc.stop(ctx.currentTime + 0.4);
+            } else {
+                osc.frequency.value = 500;
+                gain.gain.value = 0.2;
+                osc.start();
+                osc.stop(ctx.currentTime + 0.3);
+            }
+        }
+
+        async function validarEntrada(codigo) {
+            try {
+                const response = await fetch('/api/entradas/validar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `codigo_qr=${encodeURIComponent(codigo)}&guardia=${encodeURIComponent(guardia)}`
+                });
+                const data = await response.json();
+                
+                if (data.valido) {
+                    showResult(data, 'valid');
+                } else if (data.mensaje && data.mensaje.includes('YA USADA')) {
+                    showResult(data, 'used');
+                } else {
+                    showResult(data, 'invalid');
+                }
+            } catch (err) {
+                showResult({ mensaje: 'Error de conexión' }, 'invalid');
+            }
+        }
+
+        function validarManual() {
+            const code = document.getElementById('manualCode').value.trim();
+            if (code) {
+                validarEntrada(code);
+                document.getElementById('manualCode').value = '';
+            }
+        }
+
+        async function startCamera() {
+            try {
+                document.getElementById('btnCamera').style.display = 'none';
+                document.getElementById('scannerBox').style.display = 'block';
+
+                html5QrCode = new Html5Qrcode("video");
+                
+                await html5QrCode.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    (decodedText) => {
+                        if (!isScanning) {
+                            isScanning = true;
+                            validarEntrada(decodedText);
+                            setTimeout(() => { isScanning = false; }, 2000);
+                        }
+                    },
+                    (error) => { }
+                );
+            } catch (err) {
+                document.getElementById('cameraError').style.display = 'block';
+                document.getElementById('scannerBox').style.display = 'none';
+                document.getElementById('btnCamera').style.display = 'block';
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('guardia_username');
+            localStorage.removeItem('guardia_nombre');
+            window.location.href = '/guardia';
+        }
+
+        const savedName = localStorage.getItem('guardia_nombre');
+        if (savedName) {
+            document.getElementById('guardiaName').textContent = savedName;
+        }
+    </script>
+</body>
+</html>

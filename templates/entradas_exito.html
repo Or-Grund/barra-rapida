@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Comprar Entradas - Fiesta de Folklore 2026</title>
+    <title>🎟️ Comprar Entradas - Fiesta de Folklore 2026</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -34,6 +34,7 @@
             box-shadow: 0 8px 32px rgba(0,0,0,0.3);
         }
         .ticket-card h3 { color: #0f3460; font-size: 1.5em; margin-bottom: 5px; }
+        .ticket-card .price { font-size: 2em; color: #e94560; font-weight: bold; }
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #333; }
         .form-group input, .form-group select {
@@ -43,11 +44,6 @@
             border-radius: 8px;
             font-size: 1em;
         }
-        .form-group input:focus, .form-group select:focus {
-            outline: none;
-            border-color: #e94560;
-        }
-        .form-group .hint { color: #666; font-size: 0.85em; margin-top: 3px; }
         .quantity-selector {
             display: flex;
             align-items: center;
@@ -78,6 +74,7 @@
             font-weight: bold;
             cursor: pointer;
         }
+        .btn-buy:hover:not(:disabled) { transform: translateY(-3px); }
         .btn-buy:disabled { background: #666; cursor: not-allowed; }
         .total-box {
             background: rgba(15, 52, 96, 0.9);
@@ -112,63 +109,60 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         .footer { text-align: center; padding: 20px; color: rgba(255,255,255,0.6); font-size: 0.9em; }
     </style>
-<base target="_blank">
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Fiesta de Folklore 2026</h1>
-            <p>Comprá tus entradas acá</p>
+            <h1>🎵 Fiesta de Folklore 2026 🎵</h1>
+            <p>¡Comprá tus entradas acá!</p>
         </div>
 
         <div class="event-info">
-            <h2>Sábado 15 de Agosto - 21:00 hs</h2>
-            <p>Predio Municipal</p>
-            <p>Artistas invitados de folklore nacional</p>
+            <h2>📅 Sábado 15 de Agosto - 21:00 hs</h2>
+            <p>📍 Predio Municipal - Tu Ciudad</p>
+            <p>🎤 Artistas invitados de folklore nacional</p>
         </div>
 
         <div id="alertBox" class="alert-box"></div>
 
         <form id="compraForm">
             <div class="ticket-card">
-                <h3>Datos del Comprador</h3>
+                <h3>👤 Datos del Comprador</h3>
                 <div class="form-group">
                     <label for="nombre">Nombre completo *</label>
                     <input type="text" id="nombre" name="nombre" required placeholder="Ej: Gabriel Torres">
                 </div>
                 <div class="form-group">
-                    <label for="email">Email *</label>
-                    <input type="email" id="email" name="email" required placeholder="Ej: tuemail@gmail.com">
-                    <div class="hint">Solo Gmail, Outlook o Hotmail</div>
+                    <label for="dni">DNI *</label>
+                    <input type="text" id="dni" name="dni" required placeholder="Ej: 35123456">
                 </div>
                 <div class="form-group">
-                    <label for="telefono">Teléfono *</label>
-                    <input type="tel" id="telefono" name="telefono" required placeholder="Ej: 3816555333" pattern="^381[0-9]{7}$">
-                    <div class="hint">Área Tucumán (381) - 10 dígitos sin espacios</div>
+                    <label for="email">Email (opcional)</label>
+                    <input type="email" id="email" name="email" placeholder="Para recibir copia de las entradas">
                 </div>
                 <div class="form-group">
-                    <label for="dni">DNI (opcional)</label>
-                    <input type="text" id="dni" name="dni" placeholder="Ej: 35123456">
+                    <label for="telefono">Teléfono (opcional)</label>
+                    <input type="tel" id="telefono" name="telefono" placeholder="Ej: 11 1234-5678">
                 </div>
             </div>
 
             <div class="ticket-card">
-                <h3>Tipo de Entrada</h3>
+                <h3>🎫 Tipo de Entrada</h3>
                 <div class="form-group">
                     <label for="tipo_entrada">Seleccioná el tipo de entrada</label>
                     <select id="tipo_entrada" name="tipo_entrada_id" required>
                         <option value="">-- Elegí una opción --</option>
                         {% for tipo in tipos %}
-                        <option value="{{ tipo['id'] }}" data-precio="{{ tipo['precio'] }}" data-stock="{{ tipo['stock'] }}">
-                            {{ tipo['nombre'] }} - ${{ tipo['precio']|int }}
+                        <option value="{{ tipo.id }}" data-precio="{{ tipo.precio }}" data-stock="{{ tipo.stock }}">
+                            {{ tipo.nombre }} - ${{ "%.0f"|format(tipo.precio) }} 
                         </option>
                         {% endfor %}
                     </select>
                 </div>
 
-                <h3 style="margin-top: 20px;">Cantidad de Entradas</h3>
+                <h3 style="margin-top: 20px;">🔢 Cantidad de Entradas</h3>
                 <div class="quantity-selector">
-                    <button type="button" id="btnMinus" onclick="cambiarCantidad(-1)">-</button>
+                    <button type="button" id="btnMinus" onclick="cambiarCantidad(-1)">−</button>
                     <span id="cantidadDisplay">1</span>
                     <button type="button" id="btnPlus" onclick="cambiarCantidad(1)">+</button>
                 </div>
@@ -181,7 +175,7 @@
             </div>
 
             <button type="submit" class="btn-buy" id="btnComprar">
-                COMPRAR ENTRADAS
+                🛒 COMPRAR ENTRADAS
             </button>
         </form>
 
@@ -191,8 +185,8 @@
         </div>
 
         <div class="footer">
-            <p>Pagos seguros por Mercado Pago</p>
-            <p>Guardá los QR de tus entradas - son tu acceso al evento</p>
+            <p>🔒 Pagos seguros por Mercado Pago</p>
+            <p>📱 Guardá los QR de tus entradas</p>
         </div>
     </div>
 
@@ -210,7 +204,7 @@
         const btnComprar = document.getElementById('btnComprar');
         const alertBox = document.getElementById('alertBox');
 
-        function showAlert(msg, type) {
+        function showAlert(msg, type = 'error') {
             alertBox.textContent = msg;
             alertBox.className = 'alert-box show ' + type;
             setTimeout(() => alertBox.classList.remove('show'), 5000);
@@ -257,71 +251,32 @@
 
         document.getElementById('compraForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-
-            // Validaciones
-            const nombre = document.getElementById('nombre').value.trim();
-            const email = document.getElementById('email').value.trim();
-            const telefono = document.getElementById('telefono').value.trim();
-
-            if (!nombre) {
-                showAlert('Ingresá tu nombre completo', 'error');
-                return;
-            }
-
-            if (!email) {
-                showAlert('Ingresá tu email', 'error');
-                return;
-            }
-
-            const emailLower = email.toLowerCase();
-            if (!emailLower.endsWith('@gmail.com') && !emailLower.endsWith('@outlook.com') && !emailLower.endsWith('@hotmail.com')) {
-                showAlert('Solo se permiten emails de Gmail, Outlook o Hotmail', 'error');
-                return;
-            }
-
-            if (!telefono) {
-                showAlert('Ingresá tu teléfono', 'error');
-                return;
-            }
-
-            if (!telefono.match(/^381[0-9]{7}$/)) {
-                showAlert('El teléfono debe ser de área Tucumán (381) + 7 dígitos. Ej: 3816555333', 'error');
-                return;
-            }
-
             if (!tipoSelect.value) {
                 showAlert('Seleccioná un tipo de entrada', 'error');
                 return;
             }
-
             const formData = new FormData(this);
             document.getElementById('loading').classList.add('show');
             btnComprar.disabled = true;
-
             try {
                 const response = await fetch('/api/entradas/crear-preferencia', {
                     method: 'POST',
                     body: formData
                 });
-
                 const data = await response.json();
-
                 if (response.ok) {
-                    showAlert('Compra procesada! Redirigiendo...', 'success');
-                    // Redirigir a la página de éxito después de 1 segundo
+                    showAlert('¡Compra procesada! Redirigiendo...', 'success');
                     setTimeout(() => {
                         window.location.href = '/entradas/exito/' + data.compra_id;
-                    }, 1000);
+                    }, 1500);
                 } else {
                     showAlert(data.detail || 'Error al procesar la compra', 'error');
                     btnComprar.disabled = false;
                 }
             } catch (err) {
-                console.error('Error:', err);
-                showAlert('Error de conexion. Intenta de nuevo.', 'error');
+                showAlert('Error de conexión. Intentá de nuevo.', 'error');
                 btnComprar.disabled = false;
             }
-
             document.getElementById('loading').classList.remove('show');
         });
     </script>

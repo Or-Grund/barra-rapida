@@ -233,8 +233,8 @@ async def pagina_entradas(request: Request):
 @app.post("/api/entradas/crear-preferencia")
 async def crear_preferencia_entradas(
     nombre: str = Form(...),
-    email: str = Form(""),
-    telefono: str = Form(""),
+    email: str = Form(...),
+    telefono: str = Form(...),
     dni: str = Form(""),
     tipo_entrada_id: int = Form(...),
     cantidad: int = Form(...)
@@ -253,6 +253,26 @@ async def crear_preferencia_entradas(
         raise HTTPException(status_code=400, detail="Tipo de entrada no válido")
 
     tipo = row_to_dict(tipo_row)
+
+    # Validar email obligatorio y formato
+    if not email or email.strip() == "":
+        conn.close()
+        raise HTTPException(status_code=400, detail="El email es obligatorio")
+
+    email_lower = email.lower().strip()
+    if not (email_lower.endswith("@gmail.com") or email_lower.endswith("@outlook.com") or email_lower.endswith("@hotmail.com")):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Solo se permiten emails de Gmail, Outlook o Hotmail")
+
+    # Validar teléfono obligatorio y formato (área Tucumán 381)
+    if not telefono or telefono.strip() == "":
+        conn.close()
+        raise HTTPException(status_code=400, detail="El teléfono es obligatorio")
+
+    telefono_limpio = telefono.strip().replace(" ", "").replace("-", "")
+    if not telefono_limpio.startswith("381") or len(telefono_limpio) != 10 or not telefono_limpio.isdigit():
+        conn.close()
+        raise HTTPException(status_code=400, detail="El teléfono debe ser de área Tucumán (381) + 7 dígitos. Ej: 3816555333")
 
     # Contar entradas vendidas de este tipo
     vendidas_row = cursor.execute("""
@@ -543,11 +563,11 @@ async def panel_entradas(request: Request):
 
     # Compras recientes
     compras_rows = conn.execute("""
-        SELECT c.*, t.nombre as tipo_nombre
+        SELECT c.*, 
+            (SELECT t.nombre FROM entradas e 
+             JOIN tipos_entrada t ON e.tipo_entrada_id = t.id 
+             WHERE e.compra_id = c.id LIMIT 1) as tipo_nombre
         FROM compras_entradas c
-        LEFT JOIN entradas e ON c.id = e.compra_id
-        LEFT JOIN tipos_entrada t ON e.tipo_entrada_id = t.id
-        GROUP BY c.id
         ORDER BY c.creado_en DESC
         LIMIT 50
     """).fetchall()

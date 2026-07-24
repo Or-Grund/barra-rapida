@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎟️ QR de Entradas</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0f0f23;
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        .header { text-align: center; padding: 20px 0; border-bottom: 2px solid rgba(233, 69, 96, 0.3); margin-bottom: 30px; }
+        .header h1 { color: #e94560; }
+        .info-box { background: rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; }
+        .info-box p { margin: 8px 0; }
+        .info-box .label { color: #aaa; }
+        .info-box .value { font-weight: bold; color: #e94560; }
+        .ticket-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+        .ticket-card {
+            background: white; color: #1a1a2e; border-radius: 15px;
+            padding: 20px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .ticket-card h3 { color: #0f3460; margin-bottom: 10px; }
+        .ticket-card img { max-width: 200px; border: 2px solid #0f3460; border-radius: 10px; padding: 5px; background: white; }
+        .ticket-number { background: #e94560; color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; display: inline-block; margin-top: 10px; }
+        .status { margin-top: 10px; padding: 5px 10px; border-radius: 6px; font-size: 0.9em; font-weight: bold; }
+        .status-pagado { background: #d4edda; color: #155724; }
+        .status-usada { background: #f8d7da; color: #721c24; }
+        .btn-back { display: inline-block; margin-top: 30px; padding: 12px 25px; background: #e94560; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; }
+        .warning { background: #fff3cd; color: #856404; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid #ffc107; }
+        @media print {
+            body { background: white; color: black; }
+            .btn-back, .warning { display: none; }
+            .ticket-card { border: 2px solid #000; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎟️ Entradas de {{ compra.nombre_comprador }}</h1>
+            <p style="color: #aaa;">Compra #{{ compra.id }}</p>
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ Uso exclusivo del organizador</strong><br>
+            Estos QR son para enviar al comprador en caso de reclamo.
+        </div>
+
+        <div class="info-box">
+            <p><span class="label">Comprador:</span> <span class="value">{{ compra.nombre_comprador }}</span></p>
+            <p><span class="label">DNI:</span> <span class="value">{{ compra.dni }}</span></p>
+            <p><span class="label">Email:</span> <span class="value">{{ compra.email or 'No proporcionado' }}</span></p>
+            <p><span class="label">Teléfono:</span> <span class="value">{{ compra.telefono or 'No proporcionado' }}</span></p>
+            <p><span class="label">Total:</span> <span class="value">${{ "%.0f"|format(compra.total) }}</span></p>
+            <p><span class="label">Estado:</span> <span class="value">{{ compra.estado.upper() }}</span></p>
+        </div>
+
+        <div class="ticket-grid">
+            {% for entrada in entradas %}
+            <div class="ticket-card">
+                <h3>{{ entrada.tipo_nombre }}</h3>
+                <img src="data:image/png;base64,{{ entrada.qr_base64 }}" alt="QR">
+                <div class="ticket-number">{{ entrada.numero_entrada }}</div>
+                <div class="status status-{{ entrada.estado }}">
+                    {{ entrada.estado.upper() }}
+                    {% if entrada.usada_por_guardia %} - por {{ entrada.usada_por_guardia }} {% endif %}
+                </div>
+                {% if entrada.usada_en %}
+                <p style="margin-top: 10px; font-size: 0.85em; color: #666;">Usada: {{ entrada.usada_en }}</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <div style="text-align: center;">
+            <a href="/organizador/entradas" class="btn-back">⬅️ Volver al Panel</a>
+            <button class="btn-back" onclick="window.print()" style="margin-left: 10px; background: #0f3460;">🖨️ Imprimir</button>
+        </div>
+    </div>
+</body>
+</html>
