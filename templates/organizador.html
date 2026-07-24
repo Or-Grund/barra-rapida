@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📊 Panel Organizador - Bebidas</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+background: #0f0f23;
+color: #fff;
+min-height: 100vh;
+}
+.header {
+background: linear-gradient(135deg, #1a1a3e, #0f3460);
+padding: 20px;
+text-align: center;
+box-shadow: 0 2px 20px rgba(0,0,0,0.3);
+}
+.header h1 { font-size: 1.8em; }
+.header .subtitle { color: #e94560; margin-top: 5px; }
+.nav {
+display: flex;
+justify-content: center;
+gap: 10px;
+padding: 15px;
+background: rgba(255,255,255,0.05);
+flex-wrap: wrap;
+}
+.nav a {
+padding: 10px 20px;
+background: rgba(255,255,255,0.1);
+color: #fff;
+text-decoration: none;
+border-radius: 8px;
+}
+.nav a:hover, .nav a.active { background: #e94560; }
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+.stats-grid {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+gap: 15px;
+margin-bottom: 30px;
+}
+.stat-card {
+background: linear-gradient(135deg, #1a1a3e, #16213e);
+border-radius: 15px;
+padding: 20px;
+text-align: center;
+border: 1px solid rgba(233, 69, 96, 0.2);
+}
+.stat-card .number { font-size: 2.5em; font-weight: bold; color: #e94560; }
+.stat-card .label { color: #aaa; margin-top: 5px; }
+.section {
+background: rgba(255,255,255,0.05);
+border-radius: 15px;
+padding: 20px;
+margin-bottom: 20px;
+}
+.section h2 { color: #e94560; margin-bottom: 20px; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+th, td { padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }
+th { color: #e94560; font-weight: bold; }
+tr:hover { background: rgba(255,255,255,0.05); }
+.badge {
+padding: 5px 12px;
+border-radius: 20px;
+font-size: 0.85em;
+font-weight: bold;
+}
+.badge-activa { background: #22c55e; color: white; }
+.badge-inactiva { background: #6b7280; color: white; }
+.recarga-form { display: flex; gap: 10px; }
+.recarga-form input { width: 80px; padding: 8px; border-radius: 6px; border: 1px solid #ddd; }
+.recarga-form button { padding: 8px 15px; background: #22c55e; color: white; border: none; border-radius: 6px; cursor: pointer; }
+.refresh-btn {
+position: fixed;
+bottom: 20px;
+right: 20px;
+width: 60px;
+height: 60px;
+border-radius: 50%;
+background: #e94560;
+color: white;
+border: none;
+font-size: 1.5em;
+cursor: pointer;
+box-shadow: 0 4px 15px rgba(233, 69, 96, 0.4);
+z-index: 100;
+}
+</style>
+</head>
+<body>
+<div class="header">
+<h1>📊 Panel del Organizador</h1>
+<p class="subtitle">Control de Bebidas - Fiesta de Folklore 2026</p>
+</div>
+
+<div class="nav">
+<a href="/organizador" class="active">🍺 Bebidas</a>
+<a href="/organizador/entradas">🎟️ Entradas</a>
+</div>
+
+<div class="container">
+<div class="stats-grid">
+<div class="stat-card">
+<div class="number">{{ total_pedidos or 0 }}</div>
+<div class="label">Pedidos Pagados</div>
+</div>
+<div class="stat-card">
+<div class="number">${{ "%.0f"|format(recaudacion or 0) }}</div>
+<div class="label">Recaudado</div>
+</div>
+</div>
+
+<div class="section">
+<h2>📦 Stock de Bebidas</h2>
+<table>
+<thead>
+<tr>
+<th>Bebida</th>
+<th>Precio</th>
+<th>Stock</th>
+<th>Estado</th>
+<th>Recargar</th>
+</tr>
+</thead>
+<tbody>
+{% for b in bebidas %}
+<tr>
+<td><strong>{{ b.nombre }}</strong></td>
+<td>${{ "%.0f"|format(b.precio) }}</td>
+<td>
+<strong style="color: {% if b.stock <= 5 %}#ef4444{% elif b.stock <= 20 %}#f59e0b{% else %}#22c55e{% endif %}">
+{{ b.stock }}
+</strong>
+</td>
+<td>
+<span class="badge {% if b.activa %}badge-activa{% else %}badge-inactiva{% endif %}">
+{% if b.activa %}ACTIVA{% else %}INACTIVA{% endif %}
+</span>
+</td>
+<td>
+<form class="recarga-form" onsubmit="recargarStock(event, {{ b.id }})">
+<input type="number" name="cantidad" value="20" min="1">
+<button type="submit">+</button>
+</form>
+</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+</div>
+
+<button class="refresh-btn" onclick="location.reload()" title="Actualizar">🔄</button>
+
+<script>
+async function recargarStock(e, bebidaId) {
+e.preventDefault();
+const cantidad = e.target.querySelector('input').value;
+try {
+const response = await fetch('/api/bebidas/recargar', {
+method: 'POST',
+headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+body: `bebida_id=${bebidaId}&cantidad=${cantidad}`
+});
+if (response.ok) location.reload();
+} catch (err) {
+alert('Error al recargar stock');
+}
+}
+setInterval(() => { location.reload(); }, 30000);
+</script>
+</body>
+</html>
+
