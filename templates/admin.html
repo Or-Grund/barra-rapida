@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🍺 Panel del Barman</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+background: #0f0f23;
+color: #fff;
+min-height: 100vh;
+padding-bottom: 40px;
+}
+.header {
+background: linear-gradient(135deg, #1a1a3e, #0f3460);
+padding: 20px;
+text-align: center;
+box-shadow: 0 2px 20px rgba(0,0,0,0.3);
+}
+.header h1 { font-size: 1.8em; }
+.header .subtitle { color: #e94560; margin-top: 5px; }
+.container { max-width: 700px; margin: 0 auto; padding: 20px; }
+.pedido-card {
+background: rgba(255,255,255,0.08);
+border-left: 4px solid #f59e0b;
+border-radius: 12px;
+padding: 18px;
+margin-bottom: 15px;
+}
+.pedido-header {
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-bottom: 8px;
+}
+.pedido-id { color: #aaa; font-size: 0.9em; }
+.pedido-total { color: #e94560; font-weight: bold; font-size: 1.3em; }
+.pedido-items { font-size: 1.05em; margin: 8px 0; }
+.pedido-hora { color: #666; font-size: 0.85em; }
+.btn-entregar {
+width: 100%;
+margin-top: 12px;
+padding: 12px;
+background: #22c55e;
+color: white;
+border: none;
+border-radius: 8px;
+font-size: 1.1em;
+font-weight: bold;
+cursor: pointer;
+}
+.btn-entregar:hover { background: #16a34a; }
+.vacio {
+text-align: center;
+color: #888;
+padding: 40px 20px;
+font-size: 1.1em;
+}
+.refresh-btn {
+position: fixed;
+bottom: 20px;
+right: 20px;
+width: 60px;
+height: 60px;
+border-radius: 50%;
+background: #e94560;
+color: white;
+border: none;
+font-size: 1.5em;
+cursor: pointer;
+box-shadow: 0 4px 15px rgba(233, 69, 96, 0.4);
+}
+</style>
+</head>
+<body>
+<div class="header">
+<h1>🍺 Panel del Barman</h1>
+<p class="subtitle">Pedidos pendientes de entrega</p>
+</div>
+
+<div class="container">
+{% if pedidos %}
+{% for p in pedidos %}
+<div class="pedido-card" id="pedido-{{ p.id }}">
+<div class="pedido-header">
+<span class="pedido-id">Pedido #{{ p.id }}</span>
+<span class="pedido-total">${{ "%.0f"|format(p.total) }}</span>
+</div>
+<div class="pedido-items">{{ p.items }}</div>
+<div class="pedido-hora">{{ p.creado_en }}</div>
+<button class="btn-entregar" onclick="entregar({{ p.id }})">✅ ENTREGAR</button>
+</div>
+{% endfor %}
+{% else %}
+<div class="vacio">No hay pedidos pendientes 🎉</div>
+{% endif %}
+</div>
+
+<button class="refresh-btn" onclick="location.reload()" title="Actualizar">🔄</button>
+
+<script>
+async function entregar(pedidoId) {
+try {
+const response = await fetch('/api/entregar', {
+method: 'POST',
+headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+body: `pedido_id=${pedidoId}`
+});
+if (response.ok) {
+document.getElementById('pedido-' + pedidoId).remove();
+}
+} catch (err) {
+alert('Error al marcar como entregado');
+}
+}
+setInterval(() => { location.reload(); }, 15000);
+</script>
+</body>
+</html>
