@@ -14,6 +14,11 @@ from datetime import datetime
 import hashlib
 import secrets
 import os
+import smtplib
+import ssl
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 
 app = FastAPI(title="Barra Rápida + Entradas")
 
@@ -169,6 +174,25 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS configuracion (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            nombre_evento TEXT DEFAULT 'Fiesta de Folklore 2026',
+            fecha_evento TEXT DEFAULT '',
+            hora_evento TEXT DEFAULT '',
+            direccion_evento TEXT DEFAULT '',
+            email_remitente TEXT DEFAULT '',
+            email_password TEXT DEFAULT ''
+        )
+    """)
+
+    cursor.execute("SELECT COUNT(*) FROM configuracion")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("""
+            INSERT INTO configuracion (id, nombre_evento, fecha_evento, hora_evento, direccion_evento, email_remitente, email_password)
+            VALUES (1, 'Fiesta de Folklore 2026', '', '', '', '', '')
+        """)
+
     # Insertar tipos de entrada de ejemplo si no existen
     cursor.execute("SELECT COUNT(*) FROM tipos_entrada")
     if cursor.fetchone()[0] == 0:
@@ -213,6 +237,82 @@ def generar_codigo_entrada(compra_id, numero):
     secreto = "FOLKLORE2026_SECRET"
     hash_input = f"{secreto}-{compra_id}-{numero}-{datetime.now().timestamp()}"
     return hashlib.sha256(hash_input.encode()).hexdigest()[:16].upper()
+
+def obtener_configuracion():
+    """Devuelve la configuración del evento como diccionario"""
+    conn = get_db()
+    row = conn.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
+    conn.close()
+    return row_to_dict(row) if row else {}
+
+def enviar_email_entrada(destinatario, nombre_comprador, entradas_con_qr, config):
+    """Envía un email con las entradas (QR incluidos) al comprador. Devuelve True/False."""
+    email_remitente = (config.get("email_remitente") or "").strip()
+    email_password = (config.get("email_password") or "").strip()
+
+    if not email_remitente or not email_password:
+        print("Email no configurado (falta email_remitente o email_password), se omite el envío")
+        return False
+
+    nombre_evento = config.get("nombre_evento") or "el evento"
+    fecha_evento = config.get("fecha_evento") or ""
+    hora_evento = config.get("hora_evento") or ""
+    direccion_evento = config.get("direccion_evento") or ""
+
+    msg = MIMEMultipart("related")
+    msg["Subject"] = f"Tus entradas para {nombre_evento}"
+    msg["From"] = email_remitente
+    msg["To"] = destinatario
+
+    cuerpo_html = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; background:#1a1a2e; color:#fff; padding:20px;">
+        <h2 style="color:#e94560;">¡Hola {nombre_comprador}!</h2>
+        <p>Tu compra para <strong>{nombre_evento}</strong> fue confirmada.</p>
+        <p>
+            📅 Fecha: {fecha_evento}<br>
+            🕒 Horario: {hora_evento}<br>
+            📍 Dirección: {direccion_evento}
+        </p>
+        <p>Abajo están tus entradas con su código QR. Mostralas en la entrada del evento (una por persona).</p>
+    """
+
+    for i, entrada in enumerate(entradas_con_qr):
+        cid = f"qr{i}"
+        cuerpo_html += f"""
+        <div style="background:#fff; border-radius:10px; padding:15px; margin:15px 0; text-align:center; color:#1a1a2e;">
+            <p style="font-weight:bold; margin-bottom:10px;">{entrada['numero_entrada']}</p>
+            <img src="cid:{cid}" style="width:200px; height:200px;">
+        </div>
+        """
+
+    cuerpo_html += """
+        <p style="color:#aaa; font-size:0.85em;">Guardá este email o hacé una captura de cada QR.</p>
+    </body>
+    </html>
+    """
+
+    msg.attach(MIMEText(cuerpo_html, "html"))
+
+    for i, entrada in enumerate(entradas_con_qr):
+        cid = f"qr{i}"
+        img_bytes = base64.b64decode(entrada["qr_base64"])
+        img = MIMEImage(img_bytes)
+        img.add_header("Content-ID", f"<{cid}>")
+        img.add_header("Content-Disposition", "inline", filename=f"{cid}.png")
+        msg.attach(img)
+
+    try:
+        context = ssl.create_default_context()
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls(context=context)
+            server.login(email_remitente, email_password)
+            server.sendmail(email_remitente, destinatario, msg.as_string())
+        print(f"Email enviado a {destinatario}")
+        return True
+    except Exception as e:
+        print(f"Error al enviar email: {e}")
+        return False
 
 # ========================
 # PÁGINA PÚBLICA - COMPRA DE ENTRADAS
@@ -364,6 +464,12 @@ async def exito_entradas(request: Request, compra_id: int):
     conn = get_db()
     cursor = conn.cursor()
 
+    # Ver si esta compra ya estaba pagada antes de esta visita (para no reenviar el mail al refrescar)
+    estado_previo_row = cursor.execute(
+        "SELECT estado FROM compras_entradas WHERE id = ?", (compra_id,)
+    ).fetchone()
+    ya_estaba_pagado = bool(estado_previo_row and estado_previo_row["estado"] == "pagado")
+
     # Simular pago en modo prueba
     if MODO_PRUEBA:
         cursor.execute("""
@@ -416,6 +522,14 @@ async def exito_entradas(request: Request, compra_id: int):
         })
 
     conn.close()
+
+    # Enviar email con las entradas (solo la primera vez que se confirma el pago)
+    if not ya_estaba_pagado and compra.get("email"):
+        config = obtener_configuracion()
+        try:
+            enviar_email_entrada(compra["email"], compra["nombre_comprador"], entradas_con_qr, config)
+        except Exception as e:
+            print(f"No se pudo enviar el email de entradas: {e}")
 
     return templates.TemplateResponse(request, "entradas_exito.html", {
         "compra": compra,
@@ -657,6 +771,40 @@ async def recargar_stock(tipo_id: int = Form(...), cantidad: int = Form(...)):
         "UPDATE tipos_entrada SET stock = stock + ? WHERE id = ?",
         (cantidad, tipo_id)
     )
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ========================
+# PANEL DEL ORGANIZADOR - CONFIGURACIÓN
+# ========================
+@app.get("/organizador/configuracion", response_class=HTMLResponse)
+async def panel_configuracion(request: Request):
+    config = obtener_configuracion()
+    return templates.TemplateResponse(request, "configuracion.html", {
+        "config": config
+    })
+
+@app.post("/api/configuracion/guardar")
+async def guardar_configuracion(
+    nombre_evento: str = Form(...),
+    fecha_evento: str = Form(""),
+    hora_evento: str = Form(""),
+    direccion_evento: str = Form(""),
+    email_remitente: str = Form(""),
+    email_password: str = Form("")
+):
+    conn = get_db()
+    conn.execute("""
+        UPDATE configuracion SET
+            nombre_evento = ?,
+            fecha_evento = ?,
+            hora_evento = ?,
+            direccion_evento = ?,
+            email_remitente = ?,
+            email_password = ?
+        WHERE id = 1
+    """, (nombre_evento, fecha_evento, hora_evento, direccion_evento, email_remitente, email_password))
     conn.commit()
     conn.close()
     return {"success": True}
