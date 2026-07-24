@@ -276,8 +276,9 @@ async def crear_preferencia_entradas(
 
     # Contar entradas vendidas de este tipo
     vendidas_row = cursor.execute("""
-        SELECT COALESCE(SUM(cantidad), 0) as total FROM compras_entradas 
-        WHERE tipo_entrada_id = ? AND estado = 'pagado'
+    SELECT COALESCE(COUNT(*), 0) as total FROM entradas e
+    JOIN compras_entradas c ON e.compra_id = c.id
+    WHERE e.tipo_entrada_id = ? AND c.estado = 'pagado' 
     """, (tipo_entrada_id,)).fetchone()
 
     vendidas = vendidas_row[0] if vendidas_row else 0

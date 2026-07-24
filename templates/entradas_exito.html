@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎟️ Comprar Entradas - Fiesta de Folklore 2026</title>
+    <title>✅ ¡Entradas Compradas! - Fiesta de Folklore 2026</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -11,274 +11,95 @@
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
             min-height: 100vh;
             color: #fff;
-        }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { text-align: center; padding: 30px 0; }
-        .header h1 { font-size: 2.5em; margin-bottom: 10px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
-        .header p { color: #e94560; font-size: 1.2em; font-weight: bold; }
-        .event-info {
-            background: rgba(255,255,255,0.1);
-            border-radius: 15px;
             padding: 20px;
-            margin-bottom: 20px;
-            text-align: center;
-            border: 1px solid rgba(233, 69, 96, 0.3);
         }
-        .event-info h2 { color: #e94560; margin-bottom: 10px; }
+        .container { max-width: 500px; margin: 0 auto; }
+        .success-header { text-align: center; padding: 30px 0; }
+        .success-header .icon { font-size: 4em; margin-bottom: 15px; }
+        .success-header h1 { font-size: 1.8em; margin-bottom: 10px; }
+        .success-header p { color: #4ade80; font-size: 1.1em; }
+        .warning-box {
+            background: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #ffc107;
+        }
+        .warning-box strong { display: block; margin-bottom: 5px; }
         .ticket-card {
-            background: rgba(255,255,255,0.95);
+            background: white;
             color: #1a1a2e;
             border-radius: 15px;
             padding: 20px;
-            margin-bottom: 15px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
         }
-        .ticket-card h3 { color: #0f3460; font-size: 1.5em; margin-bottom: 5px; }
-        .ticket-card .price { font-size: 2em; color: #e94560; font-weight: bold; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #333; }
-        .form-group input, .form-group select {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 1em;
+        .ticket-header { text-align: center; border-bottom: 2px dashed #ddd; padding-bottom: 15px; margin-bottom: 15px; }
+        .ticket-header h2 { color: #0f3460; font-size: 1.3em; }
+        .qr-container { text-align: center; padding: 20px; }
+        .qr-container img { max-width: 250px; border: 3px solid #0f3460; border-radius: 10px; padding: 10px; background: white; }
+        .ticket-number { background: #e94560; color: white; padding: 8px 15px; border-radius: 20px; font-weight: bold; display: inline-block; margin-top: 10px; }
+        .ticket-info { background: #f8f9fa; border-radius: 10px; padding: 15px; margin-top: 15px; }
+        .ticket-info p { margin: 5px 0; font-size: 0.95em; }
+        .ticket-info .label { color: #666; font-size: 0.85em; }
+        .ticket-info .value { font-weight: bold; color: #0f3460; }
+        .btn-action {
+            display: block; width: 100%; padding: 15px; margin: 10px 0;
+            border: none; border-radius: 10px; font-size: 1.1em; font-weight: bold;
+            cursor: pointer; text-align: center; text-decoration: none;
         }
-        .quantity-selector {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            justify-content: center;
-            margin: 15px 0;
+        .btn-primary { background: linear-gradient(135deg, #e94560, #ff6b6b); color: white; }
+        .btn-secondary { background: #0f3460; color: white; }
+        .footer { text-align: center; padding: 20px; color: rgba(255,255,255,0.6); font-size: 0.85em; }
+        @media print {
+            body { background: white; color: black; }
+            .warning-box, .btn-action, .footer { display: none; }
+            .ticket-card { box-shadow: none; border: 2px solid #000; }
         }
-        .quantity-selector button {
-            width: 45px;
-            height: 45px;
-            border: none;
-            border-radius: 50%;
-            background: #e94560;
-            color: white;
-            font-size: 1.5em;
-            cursor: pointer;
-        }
-        .quantity-selector button:disabled { background: #ccc; cursor: not-allowed; }
-        .quantity-selector span { font-size: 1.8em; font-weight: bold; min-width: 40px; text-align: center; }
-        .btn-buy {
-            width: 100%;
-            padding: 18px;
-            background: linear-gradient(135deg, #e94560, #ff6b6b);
-            color: white;
-            border: none;
-            border-radius: 12px;
-            font-size: 1.3em;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        .btn-buy:hover:not(:disabled) { transform: translateY(-3px); }
-        .btn-buy:disabled { background: #666; cursor: not-allowed; }
-        .total-box {
-            background: rgba(15, 52, 96, 0.9);
-            color: white;
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            margin: 20px 0;
-            font-size: 1.3em;
-        }
-        .total-box .amount { font-size: 2em; color: #e94560; font-weight: bold; }
-        .alert-box {
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            display: none;
-        }
-        .alert-box.show { display: block; }
-        .alert-box.error { background: #f8d7da; color: #721c24; }
-        .alert-box.success { background: #d4edda; color: #155724; }
-        .loading { display: none; text-align: center; padding: 20px; }
-        .loading.show { display: block; }
-        .spinner {
-            width: 50px;
-            height: 50px;
-            border: 5px solid rgba(233, 69, 96, 0.3);
-            border-top-color: #e94560;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 15px;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .footer { text-align: center; padding: 20px; color: rgba(255,255,255,0.6); font-size: 0.9em; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>🎵 Fiesta de Folklore 2026 🎵</h1>
-            <p>¡Comprá tus entradas acá!</p>
+        <div class="success-header">
+            <div class="icon">🎉</div>
+            <h1>¡Compra Exitosa!</h1>
+            <p>{{ compra.nombre_comprador }}, ya tenés tus entradas</p>
         </div>
 
-        <div class="event-info">
-            <h2>📅 Sábado 15 de Agosto - 21:00 hs</h2>
-            <p>📍 Predio Municipal - Tu Ciudad</p>
-            <p>🎤 Artistas invitados de folklore nacional</p>
+        <div class="warning-box">
+            <strong>⚠️ ¡IMPORTANTE!</strong><br>
+            Hacé captura de pantalla de CADA entrada. Cada QR es único y solo se puede usar UNA VEZ.
+            Si no hacés la captura y perdés el acceso, contactá al organizador.
         </div>
 
-        <div id="alertBox" class="alert-box"></div>
-
-        <form id="compraForm">
-            <div class="ticket-card">
-                <h3>👤 Datos del Comprador</h3>
-                <div class="form-group">
-                    <label for="nombre">Nombre completo *</label>
-                    <input type="text" id="nombre" name="nombre" required placeholder="Ej: Gabriel Torres">
-                </div>
-                <div class="form-group">
-                    <label for="dni">DNI *</label>
-                    <input type="text" id="dni" name="dni" required placeholder="Ej: 35123456">
-                </div>
-                <div class="form-group">
-                    <label for="email">Email (opcional)</label>
-                    <input type="email" id="email" name="email" placeholder="Para recibir copia de las entradas">
-                </div>
-                <div class="form-group">
-                    <label for="telefono">Teléfono (opcional)</label>
-                    <input type="tel" id="telefono" name="telefono" placeholder="Ej: 11 1234-5678">
-                </div>
+        {% for entrada in entradas %}
+        <div class="ticket-card">
+            <div class="ticket-header">
+                <div style="color: #e94560; font-weight: bold; font-size: 1.1em;">🎵 FIESTA DE FOLKLORE 2026 🎵</div>
+                <h2>Entrada {{ entrada.tipo_nombre }}</h2>
+                <p style="color: #666; font-size: 0.9em;">Sábado 15 de Agosto - 21:00 hs</p>
             </div>
-
-            <div class="ticket-card">
-                <h3>🎫 Tipo de Entrada</h3>
-                <div class="form-group">
-                    <label for="tipo_entrada">Seleccioná el tipo de entrada</label>
-                    <select id="tipo_entrada" name="tipo_entrada_id" required>
-                        <option value="">-- Elegí una opción --</option>
-                        {% for tipo in tipos %}
-                        <option value="{{ tipo.id }}" data-precio="{{ tipo.precio }}" data-stock="{{ tipo.stock }}">
-                            {{ tipo.nombre }} - ${{ "%.0f"|format(tipo.precio) }} 
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <h3 style="margin-top: 20px;">🔢 Cantidad de Entradas</h3>
-                <div class="quantity-selector">
-                    <button type="button" id="btnMinus" onclick="cambiarCantidad(-1)">−</button>
-                    <span id="cantidadDisplay">1</span>
-                    <button type="button" id="btnPlus" onclick="cambiarCantidad(1)">+</button>
-                </div>
-                <input type="hidden" id="cantidad" name="cantidad" value="1">
-
-                <div class="total-box">
-                    <div>Total a pagar</div>
-                    <div class="amount" id="totalDisplay">$0</div>
-                </div>
+            <div class="qr-container">
+                <img src="data:image/png;base64,{{ entrada.qr_base64 }}" alt="QR Entrada">
+                <div class="ticket-number">{{ entrada.numero_entrada }}</div>
             </div>
-
-            <button type="submit" class="btn-buy" id="btnComprar">
-                🛒 COMPRAR ENTRADAS
-            </button>
-        </form>
-
-        <div class="loading" id="loading">
-            <div class="spinner"></div>
-            <p>Procesando tu compra...</p>
+            <div class="ticket-info">
+                <p><span class="label">Comprador:</span> <span class="value">{{ compra.nombre_comprador }}</span></p>
+                <p><span class="label">DNI:</span> <span class="value">{{ compra.dni }}</span></p>
+                <p><span class="label">Tipo:</span> <span class="value">{{ entrada.tipo_nombre }}</span></p>
+                <p><span class="label">Precio:</span> <span class="value">${{ "%.0f"|format(entrada.precio) }}</span></p>
+            </div>
         </div>
+        {% endfor %}
+
+        <button class="btn-action btn-primary" onclick="window.print()">🖨️ IMPRIMIR / GUARDAR COMO PDF</button>
+        <a href="/entradas" class="btn-action btn-secondary">🎟️ Comprar Más Entradas</a>
 
         <div class="footer">
-            <p>🔒 Pagos seguros por Mercado Pago</p>
-            <p>📱 Guardá los QR de tus entradas</p>
+            <p>🔒 Entradas rastreables - Código único por entrada</p>
+            <p>Si tenés problemas, contactá al organizador con tu DNI: {{ compra.dni }}</p>
         </div>
     </div>
-
-    <script>
-        let precioUnitario = 0;
-        let stockDisponible = 0;
-        let cantidad = 1;
-
-        const tipoSelect = document.getElementById('tipo_entrada');
-        const cantidadInput = document.getElementById('cantidad');
-        const cantidadDisplay = document.getElementById('cantidadDisplay');
-        const totalDisplay = document.getElementById('totalDisplay');
-        const btnMinus = document.getElementById('btnMinus');
-        const btnPlus = document.getElementById('btnPlus');
-        const btnComprar = document.getElementById('btnComprar');
-        const alertBox = document.getElementById('alertBox');
-
-        function showAlert(msg, type = 'error') {
-            alertBox.textContent = msg;
-            alertBox.className = 'alert-box show ' + type;
-            setTimeout(() => alertBox.classList.remove('show'), 5000);
-        }
-
-        function actualizarTotal() {
-            if (precioUnitario > 0) {
-                const total = precioUnitario * cantidad;
-                totalDisplay.textContent = '$' + total.toLocaleString('es-AR');
-            } else {
-                totalDisplay.textContent = '$0';
-            }
-        }
-
-        function cambiarCantidad(delta) {
-            const nueva = cantidad + delta;
-            if (nueva >= 1 && nueva <= 10 && nueva <= stockDisponible) {
-                cantidad = nueva;
-                cantidadDisplay.textContent = cantidad;
-                cantidadInput.value = cantidad;
-                actualizarTotal();
-            }
-            btnMinus.disabled = cantidad <= 1;
-            btnPlus.disabled = cantidad >= 10 || cantidad >= stockDisponible;
-        }
-
-        tipoSelect.addEventListener('change', function() {
-            const option = this.options[this.selectedIndex];
-            if (this.value) {
-                precioUnitario = parseFloat(option.dataset.precio);
-                stockDisponible = parseInt(option.dataset.stock);
-                cantidad = 1;
-                cantidadDisplay.textContent = 1;
-                cantidadInput.value = 1;
-                btnComprar.disabled = stockDisponible === 0;
-                actualizarTotal();
-            } else {
-                precioUnitario = 0;
-                stockDisponible = 0;
-            }
-            btnMinus.disabled = true;
-            btnPlus.disabled = cantidad >= stockDisponible;
-        });
-
-        document.getElementById('compraForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            if (!tipoSelect.value) {
-                showAlert('Seleccioná un tipo de entrada', 'error');
-                return;
-            }
-            const formData = new FormData(this);
-            document.getElementById('loading').classList.add('show');
-            btnComprar.disabled = true;
-            try {
-                const response = await fetch('/api/entradas/crear-preferencia', {
-                    method: 'POST',
-                    body: formData
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    showAlert('¡Compra procesada! Redirigiendo...', 'success');
-                    setTimeout(() => {
-                        window.location.href = '/entradas/exito/' + data.compra_id;
-                    }, 1500);
-                } else {
-                    showAlert(data.detail || 'Error al procesar la compra', 'error');
-                    btnComprar.disabled = false;
-                }
-            } catch (err) {
-                showAlert('Error de conexión. Intentá de nuevo.', 'error');
-                btnComprar.disabled = false;
-            }
-            document.getElementById('loading').classList.remove('show');
-        });
-    </script>
 </body>
 </html>
