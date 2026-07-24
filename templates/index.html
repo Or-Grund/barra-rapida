@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🍺 Barra Rápida</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+min-height: 100vh;
+color: #fff;
+}
+.header {
+background: rgba(0,0,0,0.3);
+padding: 20px 15px;
+text-align: center;
+position: sticky;
+top: 0;
+z-index: 100;
+}
+.header h1 { font-size: 1.6em; }
+.header .subtitle { color: #e94560; font-size: 0.95em; margin-top: 5px; }
+.container { max-width: 600px; margin: 0 auto; padding: 20px; padding-bottom: 260px; }
+.bebida {
+background: rgba(255,255,255,0.1);
+border-radius: 15px;
+padding: 15px 18px;
+margin: 10px 0;
+display: flex;
+justify-content: space-between;
+align-items: center;
+border: 1px solid rgba(255,255,255,0.2);
+}
+.bebida.agotada { opacity: 0.5; }
+.bebida-info h3 { font-size: 1.1em; margin-bottom: 3px; }
+.precio { color: #e94560; font-size: 1.15em; font-weight: bold; }
+.stock-info { font-size: 0.8em; color: #aaa; margin-top: 3px; }
+.stock-info.bajo { color: #f39c12; }
+.tag-agotado {
+background: #e94560;
+padding: 6px 14px;
+border-radius: 15px;
+font-size: 0.85em;
+font-weight: bold;
+}
+.cantidad-control { display: flex; align-items: center; gap: 12px; }
+.btn-cantidad {
+background: #e94560;
+color: white;
+border: none;
+width: 36px;
+height: 36px;
+border-radius: 50%;
+font-size: 1.3em;
+cursor: pointer;
+}
+.btn-cantidad:disabled { background: #555; cursor: not-allowed; }
+.cantidad-valor { font-size: 1.2em; min-width: 24px; text-align: center; }
+.carrito-fijo {
+position: fixed;
+bottom: 0; left: 0; right: 0;
+background: linear-gradient(180deg, #16213e 0%, #1a1a2e 100%);
+border-top: 2px solid #e94560;
+padding: 15px 20px;
+max-height: 48vh;
+overflow-y: auto;
+z-index: 200;
+}
+.carrito-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.carrito-items { max-height: 130px; overflow-y: auto; margin-bottom: 10px; }
+.carrito-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 0.9em; }
+.carrito-total { font-size: 1.3em; color: #e94560; font-weight: bold; text-align: right; margin: 10px 0; }
+.btn-comprar {
+width: 100%; padding: 15px;
+background: #22c55e; color: white; border: none;
+border-radius: 10px; font-size: 1.2em; font-weight: bold; cursor: pointer;
+}
+.btn-comprar:disabled { background: #555; cursor: not-allowed; }
+.btn-vaciar { background: transparent; color: #888; border: 1px solid #888; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 0.8em; }
+.vacio-msg { text-align: center; color: #888; padding: 10px; }
+.qr-overlay {
+display: none;
+position: fixed; inset: 0;
+background: rgba(10,10,20,0.97);
+z-index: 500;
+align-items: center; justify-content: center;
+padding: 20px;
+}
+.qr-overlay.show { display: flex; }
+.qr-box {
+background: rgba(255,255,255,0.08);
+border-radius: 20px;
+padding: 30px;
+max-width: 380px;
+width: 100%;
+text-align: center;
+}
+.qr-box .estado {
+background: #22c55e; padding: 10px 20px; border-radius: 25px;
+font-weight: bold; display: inline-block; margin-bottom: 15px;
+}
+.qr-box img { width: 220px; height: 220px; background: white; padding: 10px; border-radius: 12px; }
+.qr-box .codigo { font-family: monospace; font-size: 1.4em; letter-spacing: 4px; color: #e94560; margin: 15px 0; }
+.qr-box .instr { color: #aaa; margin-top: 10px; font-size: 0.9em; }
+.btn-cerrar-qr { margin-top: 20px; padding: 10px 25px; background: #e94560; color: white; border: none; border-radius: 8px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="header">
+<h1>🍺 BARRA RÁPIDA</h1>
+<div class="subtitle">Fiesta de Folklore 2026</div>
+</div>
+
+<div class="container">
+{% for b in bebidas %}
+<div class="bebida {% if b.stock <= 0 %}agotada{% endif %}" data-id="{{ b.id }}" data-nombre="{{ b.nombre }}" data-precio="{{ b.precio }}" data-stock="{{ b.stock }}">
+<div class="bebida-info">
+<h3>{{ b.nombre }}</h3>
+<div class="precio">${{ "%.0f"|format(b.precio) }}</div>
+<div class="stock-info {% if b.stock > 0 and b.stock <= 5 %}bajo{% endif %}">
+{% if b.stock <= 0 %}Sin stock{% else %}Quedan {{ b.stock }}{% endif %}
+</div>
+</div>
+{% if b.stock <= 0 %}
+<span class="tag-agotado">AGOTADO</span>
+{% else %}
+<div class="cantidad-control">
+<button class="btn-cantidad" onclick="cambiarCantidad({{ b.id }}, -1)">−</button>
+<span class="cantidad-valor" id="cant-{{ b.id }}">0</span>
+<button class="btn-cantidad" id="btn-mas-{{ b.id }}" onclick="cambiarCantidad({{ b.id }}, 1)">+</button>
+</div>
+{% endif %}
+</div>
+{% endfor %}
+</div>
+
+<div class="carrito-fijo">
+<div class="carrito-header">
+<h3>🛒 Tu Pedido</h3>
+<button class="btn-vaciar" onclick="vaciarCarrito()">Vaciar</button>
+</div>
+<div class="carrito-items" id="carrito-items">
+<div class="vacio-msg">Agregá bebidas al carrito</div>
+</div>
+<div class="carrito-total" id="carrito-total">Total: $0</div>
+<button class="btn-comprar" id="btn-comprar" onclick="comprar()" disabled>COMPRAR</button>
+</div>
+
+<div class="qr-overlay" id="qr-overlay">
+<div class="qr-box">
+<div class="estado">✅ PAGO CONFIRMADO</div>
+<div id="qr-items"></div>
+<img id="qr-img" src="" alt="QR">
+<div class="codigo" id="qr-codigo"></div>
+<div class="instr">Mostrá esto en la barra para retirar tu pedido</div>
+<button class="btn-cerrar-qr" onclick="cerrarQr()">Listo</button>
+</div>
+</div>
+
+<script>
+let carrito = {};
+const bebidas = {};
+document.querySelectorAll('.bebida').forEach(el => {
+bebidas[el.dataset.id] = {
+nombre: el.dataset.nombre,
+precio: parseFloat(el.dataset.precio),
+stock: parseInt(el.dataset.stock)
+};
+});
+
+function cambiarCantidad(id, delta) {
+const b = bebidas[id];
+if (!carrito[id]) carrito[id] = 0;
+const nueva = carrito[id] + delta;
+if (delta > 0 && nueva > b.stock) {
+alert(`Solo quedan ${b.stock} de ${b.nombre}`);
+return;
+}
+carrito[id] = nueva;
+if (carrito[id] <= 0) delete carrito[id];
+document.getElementById('cant-' + id).textContent = carrito[id] || 0;
+const btnMas = document.getElementById('btn-mas-' + id);
+if (btnMas) btnMas.disabled = (carrito[id] || 0) >= b.stock;
+actualizarCarrito();
+}
+
+function actualizarCarrito() {
+const itemsDiv = document.getElementById('carrito-items');
+const totalDiv = document.getElementById('carrito-total');
+const btnComprar = document.getElementById('btn-comprar');
+const entries = Object.entries(carrito);
+if (entries.length === 0) {
+itemsDiv.innerHTML = '<div class="vacio-msg">Agregá bebidas al carrito</div>';
+totalDiv.textContent = 'Total: $0';
+btnComprar.disabled = true;
+return;
+}
+let total = 0;
+itemsDiv.innerHTML = entries.map(([id, cant]) => {
+const b = bebidas[id];
+const subtotal = b.precio * cant;
+total += subtotal;
+return `<div class="carrito-item"><span>${cant}x ${b.nombre}</span><span>$${subtotal.toFixed(0)}</span></div>`;
+}).join('');
+totalDiv.textContent = 'Total: $' + total.toFixed(0);
+btnComprar.disabled = false;
+}
+
+function vaciarCarrito() {
+carrito = {};
+document.querySelectorAll('.cantidad-valor').forEach(el => el.textContent = '0');
+document.querySelectorAll('[id^="btn-mas-"]').forEach(el => el.disabled = false);
+actualizarCarrito();
+}
+
+async function comprar() {
+const btn = document.getElementById('btn-comprar');
+btn.disabled = true;
+btn.textContent = 'Procesando...';
+
+const items = Object.entries(carrito).map(([id, cantidad]) => ({ id: parseInt(id), cantidad }));
+
+const formData = new FormData();
+formData.append('items', JSON.stringify(items));
+
+try {
+const res = await fetch('/api/pedido', { method: 'POST', body: formData });
+const data = await res.json();
+
+const qrRes = await fetch('/api/qr/' + data.pedido_id);
+const qrData = await qrRes.json();
+
+document.getElementById('qr-img').src = 'data:image/png;base64,' + qrData.qr;
+document.getElementById('qr-codigo').textContent = qrData.codigo;
+
+const itemsHtml = Object.entries(carrito).map(([id, cant]) => {
+const b = bebidas[id];
+return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span>${cant}x ${b.nombre}</span><span>$${(b.precio*cant).toFixed(0)}</span></div>`;
+}).join('');
+document.getElementById('qr-items').innerHTML = itemsHtml + `<div style="text-align:right;color:#e94560;font-weight:bold;font-size:1.2em;margin:10px 0;">Total: $${data.total.toFixed(0)}</div>`;
+
+document.getElementById('qr-overlay').classList.add('show');
+} catch (err) {
+alert('Error al procesar el pedido');
+btn.disabled = false;
+btn.textContent = 'COMPRAR';
+}
+}
+
+function cerrarQr() {
+location.reload();
+}
+</script>
+</body>
+</html>
