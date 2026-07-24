@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⚙️ Configuración del Evento</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+background: #0f0f23;
+color: #fff;
+min-height: 100vh;
+padding-bottom: 40px;
+}
+.header {
+background: linear-gradient(135deg, #1a1a3e, #0f3460);
+padding: 20px;
+text-align: center;
+box-shadow: 0 2px 20px rgba(0,0,0,0.3);
+}
+.header h1 { font-size: 1.8em; }
+.header .subtitle { color: #e94560; margin-top: 5px; }
+.nav {
+display: flex;
+justify-content: center;
+gap: 10px;
+padding: 15px;
+background: rgba(255,255,255,0.05);
+flex-wrap: wrap;
+}
+.nav a {
+padding: 10px 20px;
+background: rgba(255,255,255,0.1);
+color: #fff;
+text-decoration: none;
+border-radius: 8px;
+}
+.nav a:hover, .nav a.active { background: #e94560; }
+.container { max-width: 600px; margin: 0 auto; padding: 20px; }
+.section {
+background: rgba(255,255,255,0.05);
+border-radius: 15px;
+padding: 25px;
+margin-bottom: 20px;
+}
+.section h2 { color: #e94560; margin-bottom: 20px; font-size: 1.2em; }
+.form-group { margin-bottom: 18px; }
+.form-group label {
+display: block;
+margin-bottom: 6px;
+font-size: 0.9em;
+color: #ccc;
+}
+.form-group input {
+width: 100%;
+padding: 12px;
+border-radius: 8px;
+border: 1px solid rgba(255,255,255,0.2);
+background: rgba(255,255,255,0.08);
+color: #fff;
+font-size: 1em;
+}
+.form-group input:focus {
+outline: none;
+border-color: #e94560;
+}
+.form-group .hint {
+font-size: 0.8em;
+color: #888;
+margin-top: 5px;
+}
+.form-group .hint a { color: #e94560; }
+.btn-guardar {
+width: 100%;
+padding: 14px;
+background: #22c55e;
+color: white;
+border: none;
+border-radius: 10px;
+font-size: 1.1em;
+font-weight: bold;
+cursor: pointer;
+margin-top: 10px;
+}
+.btn-guardar:hover { background: #16a34a; }
+.mensaje {
+padding: 12px 15px;
+border-radius: 8px;
+margin-bottom: 15px;
+display: none;
+font-size: 0.9em;
+}
+.mensaje.show { display: block; }
+.mensaje.ok { background: rgba(34,197,94,0.2); border: 1px solid #22c55e; color: #86efac; }
+.mensaje.error { background: rgba(239,68,68,0.2); border: 1px solid #ef4444; color: #fca5a5; }
+</style>
+</head>
+<body>
+<div class="header">
+<h1>⚙️ Configuración del Evento</h1>
+<p class="subtitle">Datos del evento y correo para el envío de entradas</p>
+</div>
+
+<div class="nav">
+<a href="/organizador">🍺 Bebidas</a>
+<a href="/organizador/entradas">🎟️ Entradas</a>
+<a href="/organizador/configuracion" class="active">⚙️ Configuración</a>
+</div>
+
+<div class="container">
+<div class="mensaje" id="mensaje"></div>
+
+<form id="form-config">
+<div class="section">
+<h2>📅 Datos del evento</h2>
+<div class="form-group">
+<label for="nombre_evento">Nombre del evento</label>
+<input type="text" id="nombre_evento" name="nombre_evento" value="{{ config.nombre_evento or '' }}" required>
+</div>
+<div class="form-group">
+<label for="fecha_evento">Fecha</label>
+<input type="date" id="fecha_evento" name="fecha_evento" value="{{ config.fecha_evento or '' }}">
+</div>
+<div class="form-group">
+<label for="hora_evento">Horario</label>
+<input type="time" id="hora_evento" name="hora_evento" value="{{ config.hora_evento or '' }}">
+</div>
+<div class="form-group">
+<label for="direccion_evento">Dirección</label>
+<input type="text" id="direccion_evento" name="direccion_evento" value="{{ config.direccion_evento or '' }}" placeholder="Ej: Predio Municipal, Aguilares">
+</div>
+</div>
+
+<div class="section">
+<h2>✉️ Envío automático de entradas por email</h2>
+<div class="form-group">
+<label for="email_remitente">Cuenta de Gmail desde la que se envían</label>
+<input type="email" id="email_remitente" name="email_remitente" value="{{ config.email_remitente or '' }}" placeholder="tu-cuenta@gmail.com">
+</div>
+<div class="form-group">
+<label for="email_password">Contraseña de aplicación de Gmail</label>
+<input type="password" id="email_password" name="email_password" value="{{ config.email_password or '' }}" placeholder="16 caracteres">
+<div class="hint">No es tu contraseña normal de Gmail. Se genera en <a href="https://myaccount.google.com/apppasswords" target="_blank">myaccount.google.com/apppasswords</a> (requiere verificación en 2 pasos activada).</div>
+</div>
+</div>
+
+<button type="submit" class="btn-guardar">💾 Guardar configuración</button>
+</form>
+</div>
+
+<script>
+document.getElementById('form-config').addEventListener('submit', async function(e) {
+e.preventDefault();
+const mensaje = document.getElementById('mensaje');
+const formData = new FormData(this);
+try {
+const res = await fetch('/api/configuracion/guardar', {
+method: 'POST',
+body: formData
+});
+if (res.ok) {
+mensaje.textContent = '✅ Configuración guardada correctamente';
+mensaje.className = 'mensaje show ok';
+} else {
+mensaje.textContent = '❌ Ocurrió un error al guardar';
+mensaje.className = 'mensaje show error';
+}
+} catch (err) {
+mensaje.textContent = '❌ Error de conexión';
+mensaje.className = 'mensaje show error';
+}
+setTimeout(() => mensaje.classList.remove('show'), 4000);
+});
+</script>
+</body>
+</html>
