@@ -670,7 +670,7 @@ async def index(request: Request):
     rows = conn.execute("SELECT * FROM bebidas WHERE activa = 1").fetchall()
     bebidas = rows_to_dicts(rows)
     conn.close()
-    return templates.TemplateResponse(request, "index.html", {
+    return templates.TemplateResponse(request, "Bebidas_Publico.html", {
         "bebidas": bebidas
     })
 
@@ -689,7 +689,7 @@ async def admin(request: Request):
     """).fetchall()
     pedidos = rows_to_dicts(rows)
     conn.close()
-    return templates.TemplateResponse(request, "admin.html", {
+    return templates.TemplateResponse(request, "Barmans.html", {
         "pedidos": pedidos
     })
 
@@ -711,7 +711,7 @@ async def organizador(request: Request):
 
     conn.close()
 
-    return templates.TemplateResponse(request, "organizador.html", {
+    return templates.TemplateResponse(request, "organizador_bebidas.html", {
         "bebidas": bebidas,
         "recaudacion": recaudacion,
         "total_pedidos": total_pedidos
