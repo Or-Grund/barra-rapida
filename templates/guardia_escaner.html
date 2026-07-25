@@ -119,7 +119,7 @@
         <button class="camera-btn" id="btnCamera" onclick="startCamera()">📷 Activar Cámara</button>
 
         <div class="scanner-box" id="scannerBox">
-            <video id="video" autoplay playsinline></video>
+            <div id="reader"></div>
         </div>
 
         <div class="manual-input">
@@ -272,7 +272,7 @@
                 document.getElementById('btnCamera').style.display = 'none';
                 document.getElementById('scannerBox').style.display = 'block';
 
-                html5QrCode = new Html5Qrcode("video");
+                html5QrCode = new Html5Qrcode("reader");
                 
                 await html5QrCode.start(
                     { facingMode: "environment" },
