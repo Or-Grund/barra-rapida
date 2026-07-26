@@ -83,6 +83,8 @@
             <div class="qr-container">
                 <img src="data:image/png;base64,{{ entrada.qr_base64 }}" alt="QR Entrada">
                 <div class="ticket-number">{{ entrada.numero_entrada }}</div>
+                <p style="margin-top:8px; font-size:0.8em; color:#888;">Código (si el QR no se puede escanear):</p>
+                <p style="font-family:monospace; font-size:1.05em; letter-spacing:2px; font-weight:bold; color:#e94560;">{{ entrada.codigo_qr }}</p>
             </div>
             <div class="ticket-info">
                 <p><span class="label">Comprador:</span> <span class="value">{{ compra.nombre_comprador }}</span></p>
