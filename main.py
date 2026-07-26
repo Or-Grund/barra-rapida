@@ -283,6 +283,8 @@ def enviar_email_entrada(destinatario, nombre_comprador, entradas_con_qr, config
         <div style="background:#fff; border-radius:10px; padding:15px; margin:15px 0; text-align:center; color:#1a1a2e;">
             <p style="font-weight:bold; margin-bottom:10px;">{entrada['numero_entrada']}</p>
             <img src="cid:{cid}" style="width:200px; height:200px;">
+            <p style="margin-top:10px; font-size:0.85em; color:#555;">Código (si el QR no se puede escanear):</p>
+            <p style="font-family:monospace; font-size:1.1em; letter-spacing:2px; font-weight:bold; color:#e94560;">{entrada['codigo_qr']}</p>
         </div>
         """
 
